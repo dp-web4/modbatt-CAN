@@ -1,0 +1,66 @@
+/*
+ * battery.h
+ *
+ *  Created on: May 31, 2023
+ *      Author: Dean Claxton
+ */
+
+#ifndef INC_BATTERY_H_
+#define INC_BATTERY_H_
+
+#include "main.h"
+
+#define MAX_CELLS_PER_MODULE   256
+#define MAX_MODULES_PER_PACK   32
+
+
+typedef enum {
+  isolated,
+  locked,
+  charging,
+  unlocked,
+  enabled
+}moduleState;
+
+
+typedef struct {
+  uint16_t    voltage;    // cell 10 bit temperature
+  uint16_t    temp;       // cell 12 bit temperature
+  uint8_t     soc;				// cell 8 bit soc
+  uint8_t     soh;        // cell 8 bit soh
+}batteryCell;
+
+
+typedef struct {
+  uint8_t     mfgId;			// nodule manufacturer ID
+  uint8_t     partId;  		// module part ID
+  uint32_t    uniqueId;		// module unique Id
+  uint8_t     moduleId;		// module Id
+  uint8_t     hwVersion;	// module hardware version
+  uint8_t     fwVersion;	// module firmware version		
+  uint16_t    mmv;				// module measured voltage
+  uint16_t    mmc;				// module measured current
+  uint16_t    tempHi;     // module 16 bit temperature
+  uint16_t    tempLo;     // module 16 bit temperature
+  uint16_t    tempAvg;    // module 16 bit temperature
+  uint16_t    voltHi;     // module 16 bit voltage
+  uint16_t    voltLo;     // module 16 bit voltage
+  uint16_t    voltAvg;    // module 16 bit voltage
+  uint8_t     state;			// module operating state
+  uint8_t     status;     // module operating state
+  uint8_t     soc;				// module state of charge
+  uint8_t     soh;        // module state of health
+  uint8_t     cellCount;	// module cell count
+  batteryCell cell[MAX_CELLS_PER_MODULE];
+}batteryModule;
+
+
+batteryModule module[MAX_MODULES_PER_PACK];
+uint8_t       moduleCount;
+
+uint16_t      busVoltage;
+
+
+
+
+#endif /* INC_BATTERY_H_ */

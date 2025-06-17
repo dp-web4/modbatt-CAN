@@ -1,0 +1,1133 @@
+/***************************************************************************************************************
+ * @file           : app.c                                                         P A C K   C O N T R O L L E R
+ * @brief          : Implementation of application
+ ***************************************************************************************************************
+ *
+ * Copyright (c) 2023 Modular Battery Technologies, Inc
+ *
+ **************************************************************************************************************/
+// Include files
+#include "app.h"
+#include "bms.h"
+#include <can_id_module.h>
+#include "main.h"
+#include "canfdspi_api.h"
+#include "string.h"
+#include "stdio.h"
+#include "can_frm_mod.h"
+#include "vcu.h"
+
+/***************************************************************************************************************
+*
+*                               Section: Global Data Definitions                   P A C K   C O N T R O L L E R
+*
+***************************************************************************************************************/
+MOD_DATA appData;
+
+lastContact vcuLastContact;
+
+CAN_CONFIG config;
+CAN_OPERATION_MODE opMode;
+
+// Transmit objects
+CAN_TX_FIFO_CONFIG txConfig;
+CAN_TX_FIFO_EVENT txFlags;
+CAN_TX_MSGOBJ txObj;
+uint8_t txd[MAX_DATA_BYTES];
+
+// Receive objects
+CAN_RX_FIFO_CONFIG rxConfig;
+REG_CiFLTOBJ fObj;
+REG_CiMASK mObj;
+CAN_RX_FIFO_EVENT rxFlags;
+CAN_RX_MSGOBJ rxObj;
+uint8_t rxd[MAX_DATA_BYTES];
+
+
+REG_t reg;
+
+uint8_t i;
+
+CAN_BUS_DIAGNOSTIC busDiagnostics;
+uint8_t tec;
+uint8_t rec;
+CAN_ERROR_STATE errorFlags;
+
+
+batteryModule module[MAX_MODULES_PER_PACK];
+batteryPack pack;
+
+//extern PC_STATES VCU_ReceiveMessages(void);
+
+uint32_t MOD_TicksSinceLastMessage(uint8_t moduleId);
+void MOD_TransmitState(uint8_t moduleId, moduleState state);
+uint8_t MOD_FindMaxVoltageModule(void);
+void MOD_UpdateStats(void);
+
+
+/***************************************************************************************************************
+*
+*                   Section: Application Local Functions                           P A C K   C O N T R O L L E R
+*
+***************************************************************************************************************/
+
+
+/***************************************************************************************************************
+*
+*       Section: Application Initialization and State Machine Functions            P A C K   C O N T R O L L E R
+*
+***************************************************************************************************************/
+
+
+/***************************************************************************************************************
+*     P C _ I n i t i a l i z e                                                  P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+void PC_Initialize(void)
+{
+
+  pack.id = PACK_ID;
+  pack.mfgId=0;
+  pack.partId=0;
+  pack.uniqueId=0;
+  if (pack.id == 0)
+    pack.vcuCanOffset = 0;
+  else if (pack.id == 1)
+    pack.vcuCanOffset =0x100;
+  pack.hwVersion=HW_VER;
+  pack.fwVersion=FW_VER;
+  pack.voltage=0;
+  pack.current=0;
+  pack.moduleCount=0;
+  pack.activeModules=0;
+  pack.totalCells=0;
+  pack.cellHiTemp=0;
+  pack.cellLoTemp=0;
+  pack.cellAvgTemp=0;
+  pack.cellHiVolt=0;
+  pack.cellLoVolt=0;
+  pack.cellAvgVolt=0;
+  pack.status=0;
+  pack.vcuStateChange=0;
+  pack.state=0;
+  pack.vcuRequestedState=0;
+  pack.soc=0;
+  pack.soh=0;
+  pack.vcuLastContact.overflows=0;
+  pack.vcuLastContact.ticks=0;
+  pack.cellBalanceActive=0;
+  pack.cellBalanceStatus=0;
+  pack.faultedModules=0;
+
+
+
+
+  bool passed;
+
+
+  serialOut("");
+  serialOut("");
+  serialOut("        ██    ██");
+  serialOut("     ██ ██ ██ ██ ██");
+  serialOut("     ██ ██ ██ ██ ██     Pack Controller V1.0     (c) 2023");
+  serialOut("     ██ ██ ██ ██ ██     Modular Battery Technologies, Inc");
+  serialOut("     ██    ██    ██");
+  serialOut("     m o d b a t t");
+  serialOut("");
+
+  passed = CAN_TestRamAccess(CAN1);
+  if (passed) { sprintf(tempBuffer,"     VCU MCP2518FD RAM TEST         (CAN1) : OK"); serialOut(tempBuffer);
+  }else{        sprintf(tempBuffer,"     VCU MCP2518FD RAM TEST         (CAN1) : FAILED!"); serialOut(tempBuffer);
+  }
+  passed = CAN_TestRegisterAccess(CAN1);
+  if (passed) { sprintf(tempBuffer,"     VCU MCP2518FD REGISTER TEST    (CAN1) : OK"); serialOut(tempBuffer);
+  }else{        sprintf(tempBuffer,"     VCU MCP2518FD REGISTER TEST    (CAN1) : FAILED!"); serialOut(tempBuffer);
+  }
+  sprintf(tempBuffer," "); serialOut(tempBuffer);
+
+  passed = CAN_TestRamAccess(CAN2);
+  if (passed) { sprintf(tempBuffer,"     MODULE MCP2518FD RAM TEST      (CAN2) : OK"); serialOut(tempBuffer);
+  }else{        sprintf(tempBuffer,"     MODULE MCP2518FD RAM TEST      (CAN2) : FAILED!"); serialOut(tempBuffer);
+  }
+
+  passed = CAN_TestRegisterAccess(CAN2);
+  if (passed) { sprintf(tempBuffer,"     MODULE MCP2518FD REGISTER TEST (CAN2) : OK"); serialOut(tempBuffer);
+  }else{        sprintf(tempBuffer,"     MODULE MCP2518FD REGISTER TEST (CAN2) : FAILED!"); serialOut(tempBuffer);
+  }
+  sprintf(tempBuffer," "); serialOut(tempBuffer);
+
+  appData.state = PC_STATE_INIT;
+}
+
+
+/***************************************************************************************************************
+*     P C _ T a s k s                                                           P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+void PC_Tasks(void)
+{
+  uint8_t index;
+  uint8_t firstModuleIndex;
+ // uint8_t moduleId;
+
+  if(appData.state == PC_STATE_INIT){  // Application initialization
+      switchLedOn(GREEN_LED);
+      switchLedOn(RED_LED);
+      DRV_CANFDSPI_Init(CAN1);  // VCU interface
+      DRV_CANFDSPI_Init(CAN2);  // Module Controller interface
+      switchLedOff(GREEN_LED);
+      switchLedOff(RED_LED);
+
+      MOD_IsolateAllModules();
+      MOD_DeRegisterAllModules();
+
+      pack.vcuRequestedState = packOff;
+
+
+     // set up a reference time
+      pack.vcuLastContact.overflows = etTimerOverflows;
+      pack.vcuLastContact.ticks = htim1.Instance->CNT;
+
+      appData.state = PC_STATE_RUN;
+
+  }else if (appData.state == PC_STATE_RUN){
+
+    //Check for CAN2 RX Interrupt (module controller)
+    if(can1RxInterrupt)
+      VCU_ReceiveMessages();
+
+    //Check for CAN1 RX Interrupt (VCU)
+    if(can2RxInterrupt)
+      MOD_ReceiveMessages();
+
+    //Check for expired VCU last contact (as of email 2/11/23 from Dennis)
+    /*
+     * from latest discussions with toyota - the vcu will send continuous state commands to the pack as 'heartbeat',
+     * commanding one of the four states:  off, standby, precharge, on. If we are in ON state and don't receive another ON command for 0.5 seconds then we go to STDBY.
+     * If no further status command is received for another 0.5 sec we go to OFF.
+     * Whenever we receive a state command, we simply follow the command with one exception:  if we get an ON command and ALL modules are in overtemp condition, we go to STDBY.
+     * in normal operation, if a module goes overcurrent or overtemp it will go to STDBY by itself, without being commanded to. so as long as at least one ON module remains in
+     * the pack we can report ON state back to the VCU, but should have some mechanism for signaling the reduced capacity.
+     *
+     * 8/11/23
+     * The bms state must be commanded by the VCU at least every 200ms (5 times a second) in normal operation.
+     * if state is 10 or 11, three missing messages in a row will force transition to 01.
+     * a further 3 missing messages (i.e. 6 missed messages total) will force transition to 00.
+     *
+     */
+
+
+    //Check for expired last contact from VCU
+    if(VCU_TicksSinceLastMessage() > VCU_ET_TIMEOUT){
+      if ((pack.state == packOn) || (pack.state == packStandby) || (pack.state == packPrecharge)){
+        if(debugLevel & (DBG_VCU)){ sprintf(tempBuffer,"VCU LOST CONTACT TIMEOUT!"); serialOut(tempBuffer);}
+        pack.vcuRequestedState = packOff;
+      }
+    }else if(VCU_TicksSinceLastMessage() > VCU_ET_WARNING){
+      if ((pack.state == packOn) || (pack.state == packPrecharge)){
+        if(debugLevel & (DBG_VCU)){ sprintf(tempBuffer,"VCU LOST CONTACT WARNING!"); serialOut(tempBuffer);}
+        pack.vcuRequestedState = packStandby;
+      }
+    }
+    //Check for expired last contact from module
+    for (index =0;index < pack.moduleCount;index++){
+      if(MOD_TicksSinceLastMessage(module[index].moduleId) > MOD_ET_TIMEOUT && (module[index].statusRequested == true)){
+        if( module[index].fault != 1){
+          // Isolate Module
+          MOD_TransmitState(module[index].moduleId,moduleOff);
+          module[index].fault = 1;
+        }
+     }else if((MOD_TicksSinceLastMessage(module[index].moduleId) > MOD_ET_WARNING) && (module[index].statusRequested == false)){
+        // Request Status
+        MOD_RequestModuleStatus(module[index].moduleId);
+     }else{ // timers have not been exceeded - if the module was in fault, bring it back online
+        if(module[index].fault == 1){
+          module[index].fault = 0;
+        }
+     }
+   }
+   //PROCESS VCU POWER COMMANDS
+   if (pack.vcuRequestedState == packOn){
+     // Are we waiting for the first module to power up?  NEED TO UPDATE THIS WITH A TIMEOUT FOR A FAULTY MODULE
+     if(pack.powerStatus.powerStage == stageFirstModule){
+       //Check for first powered on module to be on-line
+       firstModuleIndex = MOD_ModuleIndexFromId(pack.powerStatus.firstModuleId);
+       if (firstModuleIndex != pack.moduleCount){
+         if(module[firstModuleIndex].current_state == moduleOn){
+           //update the power status
+           //module[index].command.commandStatus = commandActive;
+           // mark the pack as On
+           pack.state = packOn;
+           // set powerStage idle
+           pack.powerStatus.powerStage = stageIdle;
+         }
+       }
+     }else {
+       // power on the rest of the modules if they are not already on, and are not in fault
+       for (index =0;index < pack.moduleCount;index++){
+         if ((module[index].fault == false) && (module[index].current_state != moduleOn)){
+           MOD_TransmitState(module[index].moduleId,moduleOn);
+         }
+       }
+     }
+   }else if (pack.vcuRequestedState == packPrecharge){
+     if(pack.powerStatus.powerStage == stageFirstModule){
+       //Check for first powered on module to be on-line
+       firstModuleIndex = MOD_ModuleIndexFromId(pack.powerStatus.firstModuleId);
+       if (firstModuleIndex != pack.moduleCount){
+         if(module[firstModuleIndex].current_state == moduleOn){
+           //update the power status
+           //module[firstModuleIndex].command.commandStatus = commandActive;
+           // mark the pack as Precharge
+           pack.state = packPrecharge;
+           // set powerStage idle
+           pack.powerStatus.powerStage = stageIdle;
+         }
+       }
+     }else{
+       firstModuleIndex = MOD_ModuleIndexFromId(pack.powerStatus.firstModuleId);
+       // Put the rest of the modules in standby
+       for (index =0;index < pack.moduleCount;index++){
+         if (module[index].fault == false && (index != firstModuleIndex) && module[index].current_state != moduleStandby){
+           MOD_TransmitState(module[index].moduleId,moduleStandby);
+          }
+       }
+     }
+   }else if (pack.vcuRequestedState == packStandby){
+     //command all modules to go into standby
+     for (index =0;index < pack.moduleCount;index++){
+       if (module[index].fault == false && module[index].current_state != moduleStandby){
+         MOD_TransmitState(module[index].moduleId,moduleStandby);
+       }
+     }
+     pack.state = packStandby;
+   }else if (pack.vcuRequestedState == packOff){
+     // command all modules off
+     for (index =0;index < pack.moduleCount;index++){
+       if (module[index].current_state != moduleOff){
+         MOD_TransmitState(module[index].moduleId,moduleOff);
+       }
+     }
+     pack.state = packOff;
+   }
+
+   //Update our pack statistics
+   MOD_UpdateStats();
+
+   // This should fire every 500ms
+   if(sendState > 0){
+     // Send BMS Data to VCU
+    VCU_TransmitBmsState();
+    // only send BMS_DATA_1 through 3 if the pack is in Precharge or On
+    if(pack.state == packPrecharge || pack.state == packOn ){
+      VCU_TransmitBmsData1();
+      VCU_TransmitBmsData2();
+      VCU_TransmitBmsData3();
+    }
+    sendState=0;
+   }
+  }
+}
+
+
+
+/***************************************************************************************************************
+*
+*                              Section: Application Local Functions
+*
+***************************************************************************************************************/
+
+
+/***************************************************************************************************************
+*     D R V _ C A N F D S P I _ I n i t                                            P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+void DRV_CANFDSPI_Init(CANFDSPI_MODULE_ID index)
+{
+  // Reset device
+  DRV_CANFDSPI_Reset(index);
+
+  // Enable ECC and initialize RAM
+  DRV_CANFDSPI_EccEnable(index);
+
+  DRV_CANFDSPI_RamInit(index, 0xff);
+
+  // Configure device
+  DRV_CANFDSPI_ConfigureObjectReset(&config);
+  config.IsoCrcEnable = 1;
+  config.StoreInTEF = 0;
+
+  DRV_CANFDSPI_Configure(index, &config);
+
+  // Setup TX FIFO
+  DRV_CANFDSPI_TransmitChannelConfigureObjectReset(&txConfig);
+  txConfig.FifoSize = 7;
+  txConfig.PayLoadSize = CAN_PLSIZE_64;
+  txConfig.TxPriority = 1;
+
+  DRV_CANFDSPI_TransmitChannelConfigure(index, MOD_TX_FIFO, &txConfig);
+
+  // Setup RX FIFO
+  DRV_CANFDSPI_ReceiveChannelConfigureObjectReset(&rxConfig);
+  rxConfig.FifoSize = 15;
+  rxConfig.PayLoadSize = CAN_PLSIZE_64;
+
+  DRV_CANFDSPI_ReceiveChannelConfigure(index, MOD_RX_FIFO, &rxConfig);
+
+  // Setup RX Filter
+  fObj.word = 0;
+  fObj.bF.SID = 0x00;
+  fObj.bF.EXIDE = 0;
+  fObj.bF.EID = 0x00;
+
+  DRV_CANFDSPI_FilterObjectConfigure(index, CAN_FILTER0, &fObj.bF);
+
+  // Setup RX Mask
+  mObj.word = 0;
+  mObj.bF.MSID = 0x0;
+  mObj.bF.MIDE = 0; // Both standard and extended frames accepted
+  mObj.bF.MEID = 0x0;
+  DRV_CANFDSPI_FilterMaskConfigure(index, CAN_FILTER0, &mObj.bF);
+
+  // Link FIFO and Filter
+  DRV_CANFDSPI_FilterToFifoLink(index, CAN_FILTER0, MOD_RX_FIFO, true);
+
+  // Setup Bit Time
+  DRV_CANFDSPI_BitTimeConfigure(index, CAN_500K_2M, CAN_SSP_MODE_AUTO, CAN_SYSCLK_40M);
+
+  // Setup Transmit and Receive Interrupts
+  DRV_CANFDSPI_GpioModeConfigure(index, GPIO_MODE_INT, GPIO_MODE_INT);
+#ifdef MOD_USE_TX_INT
+  DRV_CANFDSPI_TransmitChannelEventEnable(index, MOD_TX_FIFO, CAN_TX_FIFO_NOT_FULL_EVENT);
+#endif
+  DRV_CANFDSPI_ReceiveChannelEventEnable(index, MOD_RX_FIFO, CAN_RX_FIFO_NOT_EMPTY_EVENT);
+  DRV_CANFDSPI_ModuleEventEnable(index, CAN_TX_EVENT | CAN_RX_EVENT);
+
+  // Select Normal Mode
+  DRV_CANFDSPI_OperationModeSelect(index, CAN_NORMAL_MODE);
+}
+
+
+
+/***************************************************************************************************************
+*     M O D _ R e c e i v e M o d u l e M e s s a g e s                            P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+void MOD_UpdateStats(void)
+{
+
+ uint8_t index;
+ uint8_t modulesOn = 0;
+ uint32_t voltage = 0;
+ uint32_t current =0;
+ uint16_t totalCurrent;
+ uint16_t totalSoc =0;
+ uint16_t totalSoh =0;
+ uint32_t totalAvgCellVolt = 0;
+ uint16_t highestCellVolt = 0;
+ uint16_t lowestCellVolt = 65535;
+ uint32_t totalAvgCellTemp = 0;
+ uint16_t highestCellTemp = 0;
+ uint16_t lowestCellTemp = 65535;
+
+ for(index = 0; index < pack.moduleCount; index++){
+    // sum the currents of all modules that are ON and average the voltages
+    if(module[index].current_state == moduleOn) {
+      voltage = voltage + module[index].mmv;
+      modulesOn++;
+      totalCurrent = totalCurrent + module[index].mmc;
+    }
+    totalSoc = totalSoc + module[index].soc;
+    totalSoh = totalSoh + module[index].soh;
+    totalAvgCellVolt = totalAvgCellVolt + module[index].cellAvgVolt;
+    totalAvgCellTemp = totalAvgCellTemp + module[index].cellAvgTemp;
+    if( module[index].cellHiVolt > highestCellVolt) highestCellVolt = module[index].cellHiVolt;
+    if( module[index].cellLoVolt < lowestCellVolt) lowestCellVolt = module[index].cellLoVolt;
+    if( module[index].cellHiTemp > highestCellTemp) highestCellTemp = module[index].cellHiTemp;
+    if( module[index].cellLoTemp < lowestCellTemp) lowestCellTemp = module[index].cellLoTemp;
+  }
+  // Voltage
+  if (modulesOn > 0) pack.voltage = voltage / modulesOn;
+  else pack.voltage = 0;
+
+  // Current
+  pack.current = current;
+
+  //SOC
+  if(pack.moduleCount > 0) pack.soc = totalSoc/pack.moduleCount;
+  else pack.soc = 0;
+
+  // Cell Avg Volt
+  if(pack.moduleCount > 0) pack.cellAvgVolt = totalAvgCellVolt / pack.moduleCount;
+  else pack.cellAvgVolt = 0;
+
+  // Hi/Lo Cell Volt
+  pack.cellHiVolt = highestCellVolt;
+  if (lowestCellVolt < 65536) pack.cellLoVolt = lowestCellVolt;
+  else lowestCellVolt = 0;
+
+  // Cell Avg Temp
+  if(pack.moduleCount > 0) pack.cellAvgTemp = totalAvgCellTemp / pack.moduleCount;
+  else pack.cellAvgTemp = 0; //-55 degrees!
+
+  // Hi/Lo Cell Temp
+  pack.cellHiTemp = highestCellTemp;
+  if (lowestCellTemp < 65536) pack.cellLoTemp = lowestCellTemp;
+  else lowestCellTemp = 0; //-55 degrees!
+
+}
+
+
+
+
+/***************************************************************************************************************
+*     M O D _ R e c e i v e M o d u l e M e s s a g e s                            P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+void MOD_ReceiveMessages(void)
+{
+
+  // Check if FIFO is not empty
+  DRV_CANFDSPI_ReceiveChannelEventGet(CAN2, MOD_RX_FIFO, &rxFlags);
+
+  while ( rxFlags & CAN_RX_FIFO_NOT_EMPTY_EVENT){
+
+    // Get message
+    DRV_CANFDSPI_ReceiveMessageGet(CAN2, MOD_RX_FIFO, &rxObj, rxd, MAX_DATA_BYTES);
+
+    if(debugLevel & (DBG_MCU + DBG_VERBOSE)){ sprintf(tempBuffer,"MC RX ID=0x%03x : EID=0x%08x : Byte[0..7]=0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x",rxObj.bF.id.SID,rxObj.bF.id.EID,rxd[0],rxd[1],rxd[2],rxd[3],rxd[4],rxd[5],rxd[6],rxd[7]); serialOut(tempBuffer);}
+
+    switch (rxObj.bF.id.SID) {
+      case ID_MODULE_ANNOUNCEMENT:
+        // Announcement from module - register it
+        MOD_RegisterModule();
+        break;
+      case ID_MODULE_DETAIL:
+        // Cell Information from module - process it
+        MOD_ProcessCellDetail();
+        break;
+      case ID_MODULE_STATUS_1:
+        // Status packet from module - process it
+        MOD_ProcessModuleStatus1();
+        break;
+      case ID_MODULE_STATUS_2:
+        // Status packet from module - process it
+        MOD_ProcessModuleStatus2();
+        break;
+      case ID_MODULE_STATUS_3:
+        // Status packet from module - process it
+        MOD_ProcessModuleStatus3();
+        break;
+      default:
+        // Unknown Message
+         if(debugLevel & (DBG_MCU + DBG_ERRORS)){ sprintf(tempBuffer,"MC RX UNKNOWN ID=0x%03x : EID=0x%08x : Byte[0..7]=0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x",rxObj.bF.id.SID,rxObj.bF.id.EID,rxd[0],rxd[1],rxd[2],rxd[3],rxd[4],rxd[5],rxd[6],rxd[7]); serialOut(tempBuffer);}
+        break;
+    }
+
+    // check for any more messages
+    DRV_CANFDSPI_ReceiveChannelEventGet(CAN2, MOD_RX_FIFO, &rxFlags);
+  }
+}
+/***************************************************************************************************************
+*     M O D _ T r a n s m i t M e s s a g e Q u e u e                              P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+void MOD_TransmitMessageQueue(CANFDSPI_MODULE_ID index)
+{
+    uint8_t attempts = MAX_TXQUEUE_ATTEMPTS;
+
+    // Check if FIFO is not full
+    do {
+      DRV_CANFDSPI_TransmitChannelEventGet(index, MOD_TX_FIFO, &txFlags);
+      if (attempts == 0) {
+        Nop();
+        Nop();
+        DRV_CANFDSPI_ErrorCountStateGet(index, &tec, &rec, &errorFlags);
+        if(debugLevel & ( DBG_MCU + DBG_ERRORS)){ sprintf(tempBuffer,"MCU TX ERROR - FIFO FULL!"); serialOut(tempBuffer);}
+        return;
+      }
+      attempts--;
+    }
+    while (!(txFlags & CAN_TX_FIFO_NOT_FULL_EVENT));
+
+    // Load message and transmit
+    uint8_t n = DRV_CANFDSPI_DlcToDataBytes(txObj.bF.ctrl.DLC);
+
+    DRV_CANFDSPI_TransmitChannelLoad(index, MOD_TX_FIFO, &txObj, txd, n, true);
+}
+
+/***************************************************************************************************************
+*     M O D _ R e g i s t e r M o d u l e                                          P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+void MOD_RegisterModule(void){
+
+  CANFRM_MODULE_ANNOUNCEMENT announcement;
+  CANFRM_MODULE_REGISTRATION registration;
+  uint8_t moduleIndex = 0;
+  uint8_t index;
+
+  // copy data to announcement structure
+  memcpy(&announcement, rxd,8);
+  if(debugLevel & DBG_MCU){ sprintf(tempBuffer,"MC RX 0x500 Announcement: FW=%02x, HW=%02x, MFG=%02x, PN=%02x, ID=%08x",announcement.moduleFw, announcement.moduleHw, announcement.moduleMfgId, announcement.modulePartId,(int)announcement.moduleUniqueId); serialOut(tempBuffer);}
+
+  //check whether the module is already registered and perhaps lost its registration
+  moduleIndex = pack.moduleCount; //default the index to the next entry (we are using 0 so next index is the moduleCount)
+  for(index = 0; index < pack.moduleCount; index++){
+    if((announcement.moduleMfgId == module[index].mfgId) && (announcement.modulePartId == module[index].partId)&&(announcement.moduleUniqueId == module[index].uniqueId))
+      moduleIndex = index; // module is already registered, save the index
+  }
+  if (moduleIndex == pack.moduleCount){ // not previously registered, so add the new module details
+    module[moduleIndex].fwVersion = announcement.moduleFw;
+    module[moduleIndex].hwVersion = announcement.moduleHw;
+    module[moduleIndex].partId =  announcement.modulePartId;
+    module[moduleIndex].mfgId = announcement.moduleMfgId;
+    module[moduleIndex].uniqueId = announcement.moduleUniqueId;
+    module[moduleIndex].lastContact.ticks = 0;
+    module[moduleIndex].lastContact.overflows = etTimerOverflows;
+    module[moduleIndex].statusRequested = true;
+
+    //increase moduleCount
+    pack.moduleCount++;
+    module[moduleIndex].moduleId = pack.moduleCount; //first module should have a module id of 1
+  }
+  // send the details back to the module
+  registration.moduleId = module[moduleIndex].moduleId;
+  registration.controllerId = CONTROLLER_ID;
+  registration.modulePartId = module[moduleIndex].partId;
+  registration.moduleMfgId = module[moduleIndex].mfgId;
+  registration.moduleUniqueId = module[moduleIndex].uniqueId;
+
+    // clear bitfields
+  txObj.word[0] = 0;                              // Configure transmit message
+  txObj.word[1] = 0;
+  txObj.word[2] = 0;
+
+  memcpy(txd, &registration, 8);
+
+  txObj.bF.id.SID = ID_MODULE_REGISTRATION;        // Standard ID
+  txObj.bF.id.EID = module[moduleIndex].moduleId;  // Extended ID
+
+  txObj.bF.ctrl.BRS = 0;                          // Bit Rate Switch - use DBR when set, NBR when cleared
+  txObj.bF.ctrl.DLC = CAN_DLC_8;                  // 8 bytes to transmit
+  txObj.bF.ctrl.FDF = 0;                          // Frame Data Format - CAN FD when set, CAN 2.0 when cleared
+  txObj.bF.ctrl.IDE = 1;                          // ID Extension selection - send base frame when cleared, extended frame when set
+
+  if(debugLevel & DBG_MCU){ sprintf(tempBuffer,"TX 0x510 Registration: ID=%02x, CTL=%02x, MFG=%02x, PN=%02x, UID=%08x",registration.moduleId, registration.controllerId, registration.moduleMfgId, registration.modulePartId,(int)registration.moduleUniqueId); serialOut(tempBuffer);}
+  MOD_TransmitMessageQueue(CAN2);                     // Send it
+}
+
+/***************************************************************************************************************
+*     M O D _ D e R e g i s t e r A l l M o d u l e s                              P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+void MOD_DeRegisterAllModules(void){
+    CANFRM_MODULE_ALL_DEREGISTER deRegistration;
+
+    // configure the packet
+    deRegistration.controllerId = CONTROLLER_ID;
+
+      // register the new module
+    txObj.word[0] = 0;                              // Configure transmit message
+    txObj.word[1] = 0;
+    txObj.word[2] = 0;
+
+    // copy de-registration packet to txd structure
+    memcpy(txd, &deRegistration, 1);
+
+    txObj.bF.id.SID = ID_MODULE_ALL_DEREGISTER;     // Standard ID
+    txObj.bF.id.EID = 0;                            // Extended ID
+
+    txObj.bF.ctrl.BRS = 0;                          // Bit Rate Switch - use DBR when set, NBR when cleared
+    txObj.bF.ctrl.DLC = CAN_DLC_1;                  // 8 bytes to transmit
+    txObj.bF.ctrl.FDF = 0;                          // Frame Data Format - CAN FD when set, CAN 2.0 when cleared
+    txObj.bF.ctrl.IDE = 1;                          // ID Extension selection - send base frame when cleared, extended frame when set
+
+    if(debugLevel & DBG_MCU){ sprintf(tempBuffer,"TX 0x51E De-Register all modules"); serialOut(tempBuffer);}
+    MOD_TransmitMessageQueue(CAN2);                     // Send it
+}
+
+/***************************************************************************************************************
+*     M O D _ I s o l a t e A l l M o d u l e s                                    P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+void MOD_IsolateAllModules(void){
+  CANFRM_MODULE_ALL_ISOLATE isolate;
+  memset(&isolate,0,sizeof(isolate));
+
+  // configure the packet
+  isolate.controllerId = CONTROLLER_ID;
+
+    // register the new module
+  txObj.word[0] = 0;                              // Configure transmit message
+  txObj.word[1] = 0;
+  txObj.word[2] = 0;
+
+  // copy isolation packet to txd structure
+  memcpy(txd, &isolate, 1);
+
+  txObj.bF.id.SID = ID_MODULE_ALL_ISOLATE;        // Standard ID
+  txObj.bF.id.EID = 0;                            // Extended ID
+
+  txObj.bF.ctrl.BRS = 0;                          // Bit Rate Switch - use DBR when set, NBR when cleared
+  txObj.bF.ctrl.DLC = CAN_DLC_1;                  // 8 bytes to transmit
+  txObj.bF.ctrl.FDF = 0;                          // Frame Data Format - CAN FD when set, CAN 2.0 when cleared
+  txObj.bF.ctrl.IDE = 1;                          // ID Extension selection - send base frame when cleared, extended frame when set
+
+  if(debugLevel & DBG_MCU){ sprintf(tempBuffer,"TX 0x51F Isolate all modules"); serialOut(tempBuffer);}
+  MOD_TransmitMessageQueue(CAN2);                     // Send it
+}
+
+/***************************************************************************************************************
+*     M O D _ R e q u e s t M o d u l e S t a t u s                                P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+void MOD_RequestModuleStatus(uint8_t moduleId){
+
+  CANFRM_MODULE_STATUS_REQUEST statusRequest;
+  uint8_t moduleIndex;
+  uint8_t index;
+
+  //find the module index
+  moduleIndex = pack.moduleCount;
+  for(index = 0; index < pack.moduleCount; index++){
+    //if(status.moduleId == module[index].moduleId)
+    if(moduleId == module[index].moduleId)
+      moduleIndex = index; // found it - save the index
+    }
+  if (moduleIndex == pack.moduleCount){
+    // TO DO Handle status from an unregistered module
+  }else{
+
+    // set request flag
+    module[moduleIndex].statusRequested = true;
+
+    // request cell detail packet for cell 0
+    statusRequest.moduleId = moduleId;
+
+     // clear bit fields
+    txObj.word[0] = 0;                              // Configure transmit message
+    txObj.word[1] = 0;
+    txObj.word[2] = 0;
+
+    memcpy(txd, &statusRequest, 1);
+
+    txObj.bF.id.SID = ID_MODULE_STATUS_REQUEST;    // Standard ID
+    txObj.bF.id.EID = moduleId;                    // Extended ID
+
+    txObj.bF.ctrl.BRS = 0;                         // Bit Rate Switch - use DBR when set, NBR when cleared
+    txObj.bF.ctrl.DLC = CAN_DLC_1;                 // 1 bytes to transmit
+    txObj.bF.ctrl.FDF = 0;                         // Frame Data Format - CAN FD when set, CAN 2.0 when cleared
+    txObj.bF.ctrl.IDE = 1;                         // ID Extension selection - send base frame when cleared, extended frame when set
+
+    if(debugLevel & DBG_MCU){ sprintf(tempBuffer,"TX 0x512 Request Status : ID=%02x",moduleId); serialOut(tempBuffer);}
+    MOD_TransmitMessageQueue(CAN2);                    // Send it
+  }
+}
+
+
+
+/***************************************************************************************************************
+*     M O D _ F i n d M a x V o l t a g e M o d u l e                              P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+uint8_t MOD_FindMaxVoltageModule(void){
+
+  uint8_t index;
+  uint16_t maxVoltage = 0;
+  uint8_t  moduleId = pack.moduleCount + 1; // default this to the last + 1
+
+  //find the module index of the module with the highest mmv that is not in fault
+  for(index = 0; index < pack.moduleCount; index++){
+    if(module[index].mmv > maxVoltage && module[index].fault == false){
+      maxVoltage = module[index].mmv;
+      moduleId = module[index].moduleId;
+    }
+  }
+  return moduleId;
+}
+
+
+
+/***************************************************************************************************************
+*     M O D _ P r o c e s s M o d u l e S t a t u s 1                              P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+void MOD_ProcessModuleStatus1(void){
+
+  CANFRM_MODULE_STATUS_1 status1;
+  uint8_t moduleIndex;
+  uint8_t index;
+
+  // copy received data to status structure
+  memset(&status1,0,12);
+  memcpy(&status1, rxd, 12);
+
+  //find the module index
+  moduleIndex = pack.moduleCount;
+  for(index = 0; index < pack.moduleCount; index++){
+    if(rxObj.bF.id.EID == module[index].moduleId)
+      moduleIndex = index; // found it - save the index
+    }
+  if (moduleIndex == pack.moduleCount){
+    // TO DO Handle status from an unregistered module
+  }else{
+    //clear status request flag
+    module[moduleIndex].statusRequested = false;
+
+    // save the data
+    module[moduleIndex].mmc                   = status1.moduleMmc; //MODULE_CURRENT_BASE + (MODULE_CURRENT_FACTOR * status1.moduleMmc);
+    module[moduleIndex].mmv                   = status1.moduleMmv; //MODULE_VOLTAGE_BASE + (MODULE_VOLTAGE_FACTOR * status1.moduleMmv);
+    module[moduleIndex].soc                   = status1.moduleSoc; //PERCENTAGE_BASE + (PERCENTAGE_FACTOR * status1.moduleSoc);
+    module[moduleIndex].soh                   = status1.moduleSoh; //PERCENTAGE_BASE + (PERCENTAGE_FACTOR * status1.moduleSoh);
+    module[moduleIndex].current_state         = status1.moduleState;
+    module[moduleIndex].status                = status1.moduleStatus;
+    module[moduleIndex].cellCount             = status1.cellCount;
+
+    // update last contact time
+    module[moduleIndex].lastContact.ticks     = htim1.Instance->CNT;
+    module[moduleIndex].lastContact.overflows = etTimerOverflows;
+
+   if(module[moduleIndex].current_state ==  module[moduleIndex].command.commandedState){
+     // update the command status if the current state is equal to the commmanded state
+     module[moduleIndex].command.commandStatus = commandActive;
+   }
+
+
+    if(debugLevel & DBG_MCU){ sprintf(tempBuffer,"RX 0x502 Status #1: ID=%02x, STE=%02x, STS=%d, CNT=%d, MMV=%d, MMC=%d, SOC=%d SOH=%d",
+        rxObj.bF.id.EID, module[moduleIndex].current_state,module[moduleIndex].status, module[moduleIndex].cellCount, status1.moduleMmv,
+        status1.moduleMmc ,  status1.moduleSoc, status1.moduleSoh); serialOut(tempBuffer);}
+  }
+}
+
+
+/***************************************************************************************************************
+*     M O D _ P r o c e s s M o d u l e S t a t u s 2                              P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+void MOD_ProcessModuleStatus2(void){
+
+  CANFRM_MODULE_STATUS_2 status2;
+  uint8_t moduleIndex;
+  uint8_t index;
+
+  // copy received data to status structure
+  memset(&status2,0,12);
+  memcpy(&status2, rxd, 12);
+
+  //find the module index
+  moduleIndex = pack.moduleCount;
+  for(index = 0; index < pack.moduleCount; index++){
+    //if(status.moduleId == module[index].moduleId)
+    if(rxObj.bF.id.EID == module[index].moduleId)
+      moduleIndex = index; // found it - save the index
+    }
+  if (moduleIndex == pack.moduleCount){
+    // TO DO Handle status from an unregistered module
+  }else{
+    //clear status request flag
+    module[moduleIndex].statusRequested = false;
+
+    // save the data
+    module[moduleIndex].cellAvgVolt           = status2.cellAvgVolt;
+    module[moduleIndex].cellHiVolt            = status2.cellHiVolt;
+    module[moduleIndex].cellLoVolt            = status2.cellLoVolt;
+
+    // update last contact time
+    module[moduleIndex].lastContact.ticks     = htim1.Instance->CNT;
+    module[moduleIndex].lastContact.overflows = etTimerOverflows;
+
+    if(debugLevel & DBG_MCU){ sprintf(tempBuffer,"RX 0x503 Status #2: ID=%02x, AVV=%d, HIV=%d, LOV=%d",
+        rxObj.bF.id.EID, module[moduleIndex].cellAvgVolt, module[moduleIndex].cellHiVolt,  module[moduleIndex].cellLoVolt); serialOut(tempBuffer);}
+
+    //TODO - only do this when not on
+    // if(pack.state != packOn) MOD_RequestCellDetail(module[moduleIndex].moduleId);
+  }
+}
+
+/***************************************************************************************************************
+*     M O D _ P r o c e s s M o d u l e S t a t u s 3                              P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+void MOD_ProcessModuleStatus3(void){
+
+  CANFRM_MODULE_STATUS_3 status3;
+  uint8_t moduleIndex;
+  uint8_t index;
+
+  // copy received data to status structure
+  memset(&status3,0,12);
+  memcpy(&status3, rxd, 12);
+
+  //find the module index
+  moduleIndex = pack.moduleCount;
+  for(index = 0; index < pack.moduleCount; index++){
+    //if(status.moduleId == module[index].moduleId)
+    if(rxObj.bF.id.EID == module[index].moduleId)
+      moduleIndex = index; // found it - save the index
+    }
+  if (moduleIndex == pack.moduleCount){
+    // TO DO Handle status from an unregistered module
+  }else{
+    //clear status request flag
+    module[moduleIndex].statusRequested = false;
+
+    // save the data
+    module[moduleIndex].cellAvgTemp           = status3.cellAvgTemp;
+    module[moduleIndex].cellHiTemp            = status3.cellHiTemp;
+    module[moduleIndex].cellLoTemp            = status3.cellLoTemp;
+
+    // update last contact time
+    module[moduleIndex].lastContact.ticks     = htim1.Instance->CNT;
+    module[moduleIndex].lastContact.overflows = etTimerOverflows;
+
+    if(debugLevel & DBG_MCU){ sprintf(tempBuffer,"RX 0x504 Status #3: ID=%02x, AVT=%d, HIT=%d, LOT=%d",
+        rxObj.bF.id.EID, module[moduleIndex].cellAvgTemp,module[moduleIndex].cellHiTemp, module[moduleIndex].cellLoTemp); serialOut(tempBuffer);}
+
+    //TODO - only do this when not on
+    // if(pack.state != packOn) MOD_RequestCellDetail(module[moduleIndex].moduleId);
+  }
+}
+
+/***************************************************************************************************************
+*     M O D _ R e q u e s t C e l l D e t a i l                                    P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+void MOD_RequestCellDetail(uint8_t moduleId){
+
+  CANFRM_MODULE_DETAIL_REQUEST detailRequest;
+
+  // request cell detail packet for cell 0
+  detailRequest.moduleId = moduleId;
+  detailRequest.cellId = 0;
+
+   // clear bit fields
+  txObj.word[0] = 0;                              // Configure transmit message
+  txObj.word[1] = 0;
+  txObj.word[2] = 0;
+
+  memcpy(txd, &detailRequest, 3);
+
+  txObj.bF.id.SID = ID_MODULE_DETAIL_REQUEST;    // Standard ID
+  txObj.bF.id.EID = moduleId;                    // Extended ID
+
+  txObj.bF.ctrl.BRS = 0;                         // Bit Rate Switch - use DBR when set, NBR when cleared
+  txObj.bF.ctrl.DLC = CAN_DLC_3;                 // 3 bytes to transmit
+  txObj.bF.ctrl.FDF = 0;                         // Frame Data Format - CAN FD when set, CAN 2.0 when cleared
+  txObj.bF.ctrl.IDE = 1;                         // ID Extension selection - send base frame when cleared, extended frame when set
+
+  if(debugLevel & DBG_MCU){ sprintf(tempBuffer,"TX 0x513 Request detail: ID=%02x, CELL=%02x",moduleId,detailRequest.cellId ); serialOut(tempBuffer);}
+  if(debugLevel & (DBG_MCU + DBG_VERBOSE)){ sprintf(tempBuffer,"TX ID=0x%03x : EID=0x%08x : Byte[0..7]=0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x",txObj.bF.id.SID,txObj.bF.id.EID,txd[0],txd[1],txd[2],txd[3],txd[4],txd[5],txd[6],txd[7]); serialOut(tempBuffer);}
+  MOD_TransmitMessageQueue(CAN2);                    // Send it
+}
+
+
+/***************************************************************************************************************
+*     M O D _ T r a n s m i t S t a t e C h a n g e                                P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+void MOD_TransmitState(uint8_t moduleId, moduleState state){
+
+  CANFRM_MODULE_STATE_CHANGE stateChange;
+  uint8_t index;
+
+  // request cell detail packet for cell 0
+  stateChange.moduleId = moduleId;
+  stateChange.state = state;
+  stateChange.UNUSED_12_31 = 0;
+
+   // clear bit fields
+  txObj.word[0] = 0;                              // Configure transmit message
+  txObj.word[1] = 0;
+  txObj.word[2] = 0;
+
+  memcpy(txd, &stateChange, 2);
+
+  txObj.bF.id.SID = ID_MODULE_STATE_CHANGE;     // Standard ID
+  txObj.bF.id.EID = moduleId;                    // Extended ID
+
+  txObj.bF.ctrl.BRS = 0;                         // Bit Rate Switch - use DBR when set, NBR when cleared
+  txObj.bF.ctrl.DLC = CAN_DLC_2;                 // 2 bytes to transmit
+  txObj.bF.ctrl.FDF = 0;                         // Frame Data Format - CAN FD when set, CAN 2.0 when cleared
+  txObj.bF.ctrl.IDE = 1;                         // ID Extension selection - send base frame when cleared, extended frame when set
+
+  if(debugLevel & DBG_MCU){ sprintf(tempBuffer,"TX 0x514 State Change ID=%02x, STATE=%02x",moduleId,state ); serialOut(tempBuffer);}
+  if(debugLevel & (DBG_MCU + DBG_VERBOSE)){ sprintf(tempBuffer,"TX ID=0x%03x : EID=0x%08x : Byte[0..7]=0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x",txObj.bF.id.SID,txObj.bF.id.EID,txd[0],txd[1],txd[2],txd[3],txd[4],txd[5],txd[6],txd[7]); serialOut(tempBuffer);}
+  MOD_TransmitMessageQueue(CAN2);                    // Send it
+
+  // Update commanded state and command status
+  index = MOD_ModuleIndexFromId(moduleId);
+  if(index != pack.moduleCount){
+    module[index].command.commandedState = state;
+    module[index].command.commandStatus = commandIssued;
+  }
+}
+
+/***************************************************************************************************************
+*     M O D _ P r o c e s s C e l l D e t a i l                                    P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+void MOD_ProcessCellDetail(void){
+
+  CANFRM_MODULE_DETAIL_REQUEST detailRequest;
+  CANFRM_MODULE_DETAIL cellDetail;
+  uint8_t moduleIndex = 0;
+  uint8_t index;
+
+
+  // copy data to announcement structure
+  memcpy(&cellDetail, rxd,8);
+  if(debugLevel & DBG_MCU){ sprintf(tempBuffer,"RX 0x505 Cell Detail: ID=%02x, CNT=%02x, CELL=%02x, SOC=%02x, TEMP=%03x, Voltage=%03x",rxObj.bF.id.EID, cellDetail.cellCount, cellDetail.cellId, cellDetail.cellSoc, cellDetail.cellTemp, cellDetail.cellVoltage); serialOut(tempBuffer);}
+
+  //check whether the module is already registered and perhaps lost its registration
+  moduleIndex = pack.moduleCount; //default the index to the next entry (we are using 0 so next index is the moduleCount)
+  for(index = 0; index < pack.moduleCount; index++){
+    //if(cellDetail.moduleId == module[index].moduleId)
+    if(rxObj.bF.id.EID == module[index].moduleId)
+      moduleIndex = index; // module is already registered, save the index
+  }
+  // store the details
+  module[moduleIndex].cellCount = cellDetail.cellCount;
+  module[moduleIndex].cell[cellDetail.cellId].soc = cellDetail.cellSoc;
+  module[moduleIndex].cell[cellDetail.cellId].soh = cellDetail.cellSoh;
+  module[moduleIndex].cell[cellDetail.cellId].temp = cellDetail.cellTemp;
+  module[moduleIndex].cell[cellDetail.cellId].voltage= cellDetail.cellVoltage;
+
+  module[moduleIndex].lastContact.ticks = htim1.Instance->CNT;
+  module[moduleIndex].lastContact.overflows = etTimerOverflows;
+
+  // request the next cell detail packet
+  if (cellDetail.cellId < (cellDetail.cellCount -1)){
+
+    detailRequest.cellId = cellDetail.cellId +1;
+
+     // clear bit fields
+    txObj.word[0] = 0;                              // Configure transmit message
+    txObj.word[1] = 0;
+    txObj.word[2] = 0;
+
+    memcpy(txd, &detailRequest, 3);
+
+    txObj.bF.id.SID = ID_MODULE_DETAIL_REQUEST;    // Standard ID
+    txObj.bF.id.EID = rxObj.bF.id.EID;             // Extended ID
+
+    txObj.bF.ctrl.BRS = 0;                          // Bit Rate Switch - use DBR when set, NBR when cleared
+    txObj.bF.ctrl.DLC = CAN_DLC_2;                  // 2 bytes to transmit
+    txObj.bF.ctrl.FDF = 0;                          // Frame Data Format - CAN FD when set, CAN 2.0 when cleared
+    txObj.bF.ctrl.IDE = 1;                          // ID Extension selection - send base frame when cleared, extended frame when set
+
+    if(debugLevel & DBG_MCU){ sprintf(tempBuffer,"TX 0x515 Request detail: ID=%02x, CELL=%02x",rxObj.bF.id.EID,detailRequest.cellId ); serialOut(tempBuffer);}
+    MOD_TransmitMessageQueue(CAN2);                     // Send it
+  }
+}
+
+/***************************************************************************************************************
+*     M O D _ M o d u l e I n d e x F r o m I d                                    P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+uint8_t MOD_ModuleIndexFromId(uint8_t moduleId)
+{
+   uint8_t moduleIndex;
+   uint8_t index;
+
+   //find the module index
+   moduleIndex = pack.moduleCount;
+   for(index = 0; index < pack.moduleCount; index++){
+     if(moduleId == module[index].moduleId)
+       moduleIndex = index; // found it - save the index
+     }
+   if (moduleIndex != pack.moduleCount) return moduleIndex;
+   else return pack.moduleCount; // unregistered module
+
+}
+
+
+/***************************************************************************************************************
+*     M O D _ L a s t M e s s a g e T i m e o u t                                 P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+uint32_t MOD_TicksSinceLastMessage(uint8_t moduleId)
+{
+  uint32_t elapsedTicks;
+  uint8_t moduleIndex = MOD_ModuleIndexFromId(moduleId);
+  if(moduleIndex != pack.moduleCount){
+    // Variables
+
+
+    if ((etTimerOverflows - module[moduleIndex].lastContact.overflows) == 0){
+      elapsedTicks = htim1.Instance->CNT - module[moduleIndex].lastContact.ticks;
+    }else{
+      //             (ticks last contact to overflow point)         + (              ticks in completed overflows                                 )                               + ( ticks in current timer period)
+      elapsedTicks = ((htim1.Init.Period +1) - module[moduleIndex].lastContact.ticks) + ( (htim1.Init.Period +1) * (etTimerOverflows - (module[moduleIndex].lastContact.overflows +1))) + (htim1.Instance->CNT);
+    }
+    return elapsedTicks;
+
+  } else return 0; // TODO Handle this error
+}
+/***************************************************************************************************************
+*     C A N _ T e s t R e g i s t e r A c c e s s                                  P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+bool CAN_TestRegisterAccess(CANFDSPI_MODULE_ID index)
+{
+    // Variables
+    uint8_t length;
+    bool good = false;
+    Nop();
+
+    // Verify read/write with different access length
+    // Note: registers can be accessed in multiples of bytes
+    for (length = 1; length <= MAX_DATA_BYTES; length++) {
+        for (i = 0; i < length; i++) {
+            txd[i] = rand() & 0x7f; // Bit 31 of Filter objects is not implemented
+            rxd[i] = 0xff;
+        }
+        Nop();
+
+        // Write data to registers
+        DRV_CANFDSPI_WriteByteArray(index, cREGADDR_CiFLTOBJ, txd, length);
+
+        // Read data back from registers
+        DRV_CANFDSPI_ReadByteArray(index, cREGADDR_CiFLTOBJ, rxd, length);
+
+        // Verify
+        good = false;
+        for (i = 0; i < length; i++) {
+            good = txd[i] == rxd[i];
+
+            if (!good) {
+                Nop();
+                Nop();
+
+                // Data mismatch
+                return false;
+            }
+        }
+    }
+    Nop();
+    Nop();
+    return true;
+}
+
+//! Test RAM access
+/***************************************************************************************************************
+*     C A N _ T e s t R a m A c c e s s                                            P A C K   C O N T R O L L E R
+***************************************************************************************************************/
+bool CAN_TestRamAccess(CANFDSPI_MODULE_ID index)
+{
+    // Variables
+    uint8_t length;
+    bool good = false;
+    Nop();
+
+    // Verify read/write with different access length
+    // Note: RAM can only be accessed in multiples of 4 bytes
+    for (length = 4; length <= MAX_DATA_BYTES; length += 4) {
+        for (i = 0; i < length; i++) {
+            txd[i] = rand() & 0xff;
+            rxd[i] = 0xff;
+        }
+        Nop();
+
+        // Write data to RAM
+        DRV_CANFDSPI_WriteByteArray(index, cRAMADDR_START, txd, length);
+
+        // Read data back from RAM
+        DRV_CANFDSPI_ReadByteArray(index, cRAMADDR_START, rxd, length);
+
+        // Verify
+        good = false;
+        for (i = 0; i < length; i++) {
+            good = txd[i] == rxd[i];
+
+            if (!good) {
+                Nop();
+                Nop();
+
+                // Data mismatch
+                return false;
+            }
+        }
+    }
+    return true;
+}

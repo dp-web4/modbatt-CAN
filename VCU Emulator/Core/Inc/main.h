@@ -1,0 +1,134 @@
+/* USER CODE BEGIN Header */
+/**
+  ******************************************************************************
+  * @file           : main.h
+  * @brief          : Header for main.c file.
+  *                   This file contains the common defines of the application.
+  ******************************************************************************
+  * @attention
+  *
+  * Copyright (c) 2023 STMicroelectronics.
+  * All rights reserved.
+  *
+  * This software is licensed under terms that can be found in the LICENSE file
+  * in the root directory of this software component.
+  * If no LICENSE file comes with this software, it is provided AS-IS.
+  *
+  ******************************************************************************
+  */
+/* USER CODE END Header */
+
+/* Define to prevent recursive inclusion -------------------------------------*/
+#ifndef __MAIN_H
+#define __MAIN_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Includes ------------------------------------------------------------------*/
+#include "stm32wbxx_hal.h"
+#include "time.h"
+
+/* Private includes ----------------------------------------------------------*/
+/* USER CODE BEGIN Includes */
+
+/* USER CODE END Includes */
+
+/* Exported types ------------------------------------------------------------*/
+/* USER CODE BEGIN ET */
+extern uint32_t etTimerOverflows;
+extern TIM_HandleTypeDef htim1;
+extern uint8_t decSec;
+extern uint16_t secondCounter;
+extern uint8_t sendState;
+extern uint8_t changeState;
+
+/* USER CODE END ET */
+
+/* Exported constants --------------------------------------------------------*/
+/* USER CODE BEGIN EC */
+
+/* USER CODE END EC */
+
+/* Exported macro ------------------------------------------------------------*/
+/* USER CODE BEGIN EM */
+
+/* USER CODE END EM */
+
+/* Exported functions prototypes ---------------------------------------------*/
+void Error_Handler(void);
+
+/* USER CODE BEGIN EFP */
+void getTime(void);
+void serialOut(char* message);
+
+extern void writeRTC(time_t now);
+extern time_t readRTC(void);
+
+/* USER CODE END EFP */
+
+/* Private defines -----------------------------------------------------------*/
+#define SPI2_CS1_Pin GPIO_PIN_0
+#define SPI2_CS1_GPIO_Port GPIOC
+#define SPI2_CS2_Pin GPIO_PIN_3
+#define SPI2_CS2_GPIO_Port GPIOC
+#define BUTTON1_Pin GPIO_PIN_4
+#define BUTTON1_GPIO_Port GPIOC
+#define CAN_CS_Pin GPIO_PIN_5
+#define CAN_CS_GPIO_Port GPIOC
+#define LED_GREEN_Pin GPIO_PIN_0
+#define LED_GREEN_GPIO_Port GPIOB
+#define LED_RED_Pin GPIO_PIN_1
+#define LED_RED_GPIO_Port GPIOB
+#define CAN_INT_Pin GPIO_PIN_12
+#define CAN_INT_GPIO_Port GPIOB
+#define CAN_INT_EXTI_IRQn EXTI15_10_IRQn
+#define CAN_INT0_Pin GPIO_PIN_13
+#define CAN_INT0_GPIO_Port GPIOB
+#define CAN_INT0_EXTI_IRQn EXTI15_10_IRQn
+#define CAN_INT1_Pin GPIO_PIN_14
+#define CAN_INT1_GPIO_Port GPIOB
+#define CAN_INT1_EXTI_IRQn EXTI15_10_IRQn
+#define BUTTON2_Pin GPIO_PIN_0
+#define BUTTON2_GPIO_Port GPIOD
+#define BUTTON3_Pin GPIO_PIN_1
+#define BUTTON3_GPIO_Port GPIOD
+#define LED_BLUE_Pin GPIO_PIN_5
+#define LED_BLUE_GPIO_Port GPIOB
+
+/* USER CODE BEGIN Private defines */
+//Timeout used for SPI functions
+
+#define MAX_BUFFER			100
+#define UART_TIMEOUT    1000
+#define	DEBUG				    1
+#define SPI_TIMEOUT			100
+
+// Debug Levels
+#define DEBUG_LEVEL     0x07
+#define DBG_DISABLED    0x00
+#define DBG_ERRORS      0x01
+#define DBG_PCU         0x02
+#define DBG_VCU         0x04
+#define DBG_VERBOSE     0x08
+
+extern uint8_t debugLevel;
+
+#define MAX_SEQUENCE_LEN      80
+
+#define STATE_SEQUENCE        "0123"
+#define STATE_REPEAT          1
+#define STATE_INTERVAL        60      // seconds - max 65536 = 18 hours+
+
+// Code anchor for break points
+#define Nop() asm("nop")
+
+
+/* USER CODE END Private defines */
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* __MAIN_H */

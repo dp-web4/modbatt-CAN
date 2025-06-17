@@ -1,0 +1,31 @@
+/***************************************************************************************************************
+ * @file           : can_id_bms_vcu.h
+ * @brief          : Modbatt CAN packet identifiers for BMS/VCU interface
+ ***************************************************************************************************************
+ *
+ * Copyright (c) 2023 Modular Battery Technologies, Inc
+ *
+ **************************************************************************************************************/
+#ifndef INC_CAN_ID_BMS_VCU_H_
+#define INC_CAN_ID_BMS_VCU_H_
+
+// CAN Packet IDs
+// Pack Controller to VCU													// J1939 PGN 				    Label
+#define ID_VCU_COMMAND              0x400//0xC1BF35B   // 1B00						High Voltage Energy Storage 1 Control 1
+#define ID_BMS_STATE                0x410//CFF01F3     // FF01            Proprietary B
+#define ID_BMS_DATA_1               0x421//0xCF090F3   // F090            High Voltage Energy Storage 1 Data 1
+#define ID_BMS_DATA_2               0x422//0xCF091F3	 // F091            High Voltage Energy Storage 1 Data 2
+#define ID_BMS_DATA_3               0x423//0xCF092F3   // F092            High Voltage Energy Storage 1 Data 3
+#define ID_BMS_DATA_4               0x424//0xCF093F3   // F093            High Voltage Energy Storage 1 Data 4
+#define ID_BMS_DATA_5               0x425//0xCF094F3	 // F094            High Voltage Energy Storage 1 Data 5
+#define ID_BMS_DATA_6               0x426//0xCF095F3   // F095            High Voltage Energy Storage 1 Data 6
+#define ID_BMS_DATA_7               0x427//0xCF0A0F3   // F0A0            High Voltage Energy Storage 1 Data 7
+#define ID_BMS_DATA_8               0x428//0xCF10AF3   // F10A            High Voltage Energy Storage 1 Data 8
+#define ID_BMS_DATA_9               0x429//0xCF10BF3   // F10B            High Voltage Energy Storage 1 Data 9
+#define ID_BMS_DATA_10              0x430//0xCF10CF3   // F10C						High Voltage Energy Storage 1 Data 10
+//#define ID_BMS_S1                   0x411//CF096F3 		 // F096						High Voltage Energy Storage 1 Status 1
+//#define ID_BCH1                     0x413//18FD1549    // FD15						Battery Charger 1
+//#define ID_BMS_SOH                  0x414//1CFC5EF3    // FC5E						High Voltage Energy Storage 1 History
+
+
+#endif /* INC_CAN_ID_BMS_VCU_H_ */

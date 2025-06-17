@@ -1,0 +1,148 @@
+/*
+ * bms.h
+ *
+ *  Created on: May 31, 2023
+ *      Author: Dean Claxton
+ */
+
+#ifndef INC_BMS_H_
+#define INC_BMS_H_
+
+#include "stdbool.h"
+
+#define MAX_CELLS_PER_MODULE   256
+#define MAX_MODULES_PER_PACK   32
+#define CONTROLLER_ID          0x01
+
+
+
+typedef enum {
+  moduleOff       = 0,   // both relays off
+  moduleStandby   = 1,   // mechanical on, FET off on all modules
+  moduleOn        = 3    // both relays on for all modules.
+}moduleState;
+
+typedef enum {
+  packOff         = 0,   // both relays off
+  packStandby     = 1,   // mechanical on, FET off on all modules
+  packPrecharge   = 2,   // mechanical on for all modules, FET on for one module (you select the highest voltage one, we can discuss further refinements)
+  packOn          = 3    // both relays on for all modules.
+}packState;
+
+
+typedef enum {
+  packStatusOff    = 0,  // charge prohibited/discharge prohibited - pack not in a condition to source or receive current, for any reason, in any state, but always the case in any state except ON
+  packStatusEmpty  = 1,  // charge allowed/discharge prohibited - pack is empty, state is ON
+  packStatusNormal = 2,  // charge allowed/discharge allowed - pack in a normal state, state is ON
+  packStatusFull   = 3   // charge prohibited/discharge allowed - pack is full, state is ON
+}bmsStatus;
+
+typedef enum {
+  commandIssued   = 0,
+  commandActive   = 1,
+  commandError    = 2
+}commandStatus;
+
+typedef enum {
+  stageFirstModule = 0,
+  stageIdle        = 1
+}powerUpStage;
+
+enum  ledMode{
+  ledOn,
+  ledOff,
+  ledBlinkX,
+  ledBlink1,
+  ledBlink2
+};
+
+
+typedef struct {
+  uint16_t    ticks;
+  uint32_t    overflows;
+}lastContact;
+
+
+typedef struct {
+  uint16_t    voltage;
+  uint16_t    temp;       // cell 16 bit temperature
+  uint8_t     soc;
+  uint8_t     soh;
+}batteryCell;
+
+
+typedef struct {
+  moduleState commandedState;
+  commandStatus commandStatus;
+}command;
+
+
+typedef struct {
+  uint8_t       firstModuleId;
+  powerUpStage  powerStage;
+}powerStatus;
+
+typedef struct {
+  uint8_t     mfgId;
+  uint8_t     partId;  // module part ID
+  uint32_t    uniqueId;
+  uint8_t     moduleId;
+  uint8_t     hwVersion;
+  uint8_t     fwVersion;
+  uint16_t    mmv;
+  uint16_t    mmc;
+  uint16_t    cellHiTemp;     // highest temperature
+  uint16_t    cellLoTemp;     // lowest temperature
+  uint16_t    cellAvgTemp;    // average temperature
+  uint16_t    cellHiVolt;     // highest voltage
+  uint16_t    cellLoVolt;     // lowest voltage
+  uint16_t    cellAvgVolt;    // average voltage
+  uint8_t     status;
+  moduleState current_state;
+  command     command;
+  uint8_t     soc;
+  uint8_t     soh;
+  uint8_t     cellCount;
+  batteryCell cell[MAX_CELLS_PER_MODULE];
+  lastContact lastContact;
+  bool        statusRequested;
+  bool        fault;
+}batteryModule;
+
+
+typedef struct {
+  uint8_t     id;
+  uint8_t     mfgId;
+  uint8_t     partId;  // module part ID
+  uint32_t    uniqueId;
+  uint8_t     hwVersion;
+  uint8_t     fwVersion;
+  uint16_t    vcuCanOffset;
+  uint16_t    voltage;
+  uint16_t    current;
+  uint8_t     moduleCount;
+  uint8_t     cellBalanceActive;
+  uint8_t     cellBalanceStatus;
+  uint8_t     activeModules;
+  uint8_t     faultedModules;
+  powerStatus powerStatus;
+  uint16_t    totalCells;
+  uint16_t    cellHiTemp;     // highest temperature
+  uint16_t    cellLoTemp;     // lowest temperature
+  uint16_t    cellAvgTemp;    // average temperature
+  uint16_t    cellHiVolt;     // highest voltage
+  uint16_t    cellLoVolt;     // lowest voltage
+  uint16_t    cellAvgVolt;    // average voltage
+  bmsStatus   status;
+  bool        vcuStateChange;
+  packState   state;
+  packState   vcuRequestedState;
+  uint8_t     soc;
+  uint8_t     soh;
+  lastContact vcuLastContact;
+}batteryPack;
+
+
+
+
+#endif /* INC_BMS_H_ */

@@ -1,0 +1,39 @@
+/***************************************************************************************************************
+ * @file           : app.h                                                         P A C K   C O N T R O L L E R
+ * @brief          : Application header file
+ ***************************************************************************************************************
+ *
+ * Copyright (c) 2023 VCUular Battery Technologies, Inc
+ *
+ **************************************************************************************************************/
+#ifndef VCU_H_
+#define VCU_H_
+
+// Include files
+#include "canfdspi_api.h"
+#include "bms.h"
+
+
+/***************************************************************************************************************
+*
+*                      Section: Type Definitions                                   P A C K   C O N T R O L L E R
+*
+***************************************************************************************************************/
+
+//#define TEST_SPI
+
+//! Use RX and TX Interrupt pins to check FIFO status
+#define VCU_USE_RX_INT
+
+// Transmit Channels
+#define VCU_TX_FIFO CAN_FIFO_CH2
+
+// Receive Channels
+#define VCU_RX_FIFO CAN_FIFO_CH1
+
+extern packState vcuStateRequested;
+extern uint32_t VCU_TicksSinceLastMessage(void);
+extern void VCU_ReceiveMessages(void);
+extern void VCU_TransmitBmsState(void);
+
+#endif /* VCU_H_ */

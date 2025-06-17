@@ -1,0 +1,10 @@
+main.c:79:6:serialOut	2
+main.c:91:6:getTime	1
+main.c:107:6:HAL_GPIO_EXTI_Callback	4
+main.c:140:5:main	1
+main.c:190:6:SystemClock_Config	3
+main.c:237:13:MX_RTC_Init	2
+main.c:272:13:MX_SPI1_Init	2
+main.c:310:13:MX_USART2_UART_Init	2
+main.c:346:13:MX_GPIO_Init	1
+main.c:404:6:Error_Handler	1

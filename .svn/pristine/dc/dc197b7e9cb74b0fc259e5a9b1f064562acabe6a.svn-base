@@ -1,0 +1,648 @@
+/***************************************************************************************************************
+ * @file           : app.c                                                               V C U   E M U L A T O R
+ * @brief          : Implementation of application
+ ***************************************************************************************************************
+ *
+ * Copyright (c) 2023 Modular Battery Technologies, Inc
+ *
+ **************************************************************************************************************/
+// Include files
+#include "app.h"
+#include "main.h"
+#include "canfdspi_api.h"
+#include "battery.h"
+#include "string.h"
+#include "stdio.h"
+#include "can_frm_vcu.h"
+#include "can_frm_bms_diag.h"
+#include "can_id_bms_vcu.h"
+#include "can_id_bms_diag.h"
+
+//#include "led.h"
+
+
+
+//! Function prototypes
+void VCU_Initialize(void);
+void VCU_TransmitMessageQueue(void);
+void VCU_ReceiveMessage_Tasks(void);
+void VCU_Tasks(void);
+bool VCU_TestRegisterAccess(void);
+bool VCU_TestRamAccess(void);
+void VCU_TransmitState(packState state);
+
+void APP_LED_Write(uint8_t led);
+void APP_LED_Clear(uint8_t led);
+void APP_LED_Set(uint8_t led);
+void APP_CANFDSPI_Init(void);
+void APP_AnnounceUnregisteredModules(void);
+void APP_RegisterModule(void);
+void APP_DeRegisterAllModules(void);
+void APP_IsolateAllModules(void);
+void APP_TransmitStatus(uint8_t index);
+void APP_ReplyToCellDetailRequest(void);
+void APP_TransmitCellZeroDetails(uint8_t index);
+
+
+/***************************************************************************************************************
+*
+*                               Section: Global Data Definitions                         V C U   E M U L A T O R
+*
+***************************************************************************************************************/
+
+
+VCU_DATA vcuData;
+
+CAN_CONFIG config;
+CAN_OPERATION_MODE opMode;
+
+// Transmit objects
+CAN_TX_FIFO_CONFIG txConfig;
+CAN_TX_FIFO_EVENT txFlags;
+CAN_TX_MSGOBJ txObj;
+uint8_t txd[MAX_DATA_BYTES];
+
+// Receive objects
+CAN_RX_FIFO_CONFIG rxConfig;
+REG_CiFLTOBJ fObj;
+REG_CiMASK mObj;
+CAN_RX_FIFO_EVENT rxFlags;
+CAN_RX_MSGOBJ rxObj;
+uint8_t rxd[MAX_DATA_BYTES];
+
+uint32_t delayCount = APP_LED_TIME;
+
+REG_t reg;
+
+//VCU_SwitchState lastSwitchState;
+
+//APP_Payload payload;
+
+uint8_t ledCount = 0, ledState = 0;
+
+uint8_t i;
+
+CAN_BUS_DIAGNOSTIC busDiagnostics;
+uint8_t tec;
+uint8_t rec;
+CAN_ERROR_STATE errorFlags;
+
+timer status;
+batteryModule module[MAX_MODULES_PER_PACK];
+batteryPack pack;
+uint8_t       moduleCount =0;
+uint16_t      busVoltage;
+
+
+
+extern char tempBuffer[MAX_BUFFER];
+extern uint8_t canRxInterrupt;
+extern uint8_t canTxInterrupt;
+extern void serialOut(char* message);
+extern moduleState vcuStateRequested;
+
+/***************************************************************************************************************
+*
+*                   Section: Application Local Functions                                 V C U   E M U L A T O R
+*
+***************************************************************************************************************/
+
+void APP_LED_Clear(uint8_t led)
+{
+    switch (led) {
+        case 0://LED_Off(LED0);
+        	HAL_GPIO_WritePin(LED_RED_GPIO_Port,  LED_RED_Pin , GPIO_PIN_RESET);
+            break;
+        case 1: //LED_Off(LED1);
+        	HAL_GPIO_WritePin(LED_GREEN_GPIO_Port,  LED_GREEN_Pin , GPIO_PIN_RESET);
+            break;
+        case 2: //LED_On(LED2);
+            HAL_GPIO_WritePin(LED_BLUE_GPIO_Port,  LED_BLUE_Pin , GPIO_PIN_RESET);
+            break;
+        default: break;
+    }
+}
+
+void APP_LED_Set(uint8_t led)
+{
+    switch (led) {
+        case 0: //LED_On(LED0);
+        	HAL_GPIO_WritePin(LED_RED_GPIO_Port,  LED_RED_Pin , GPIO_PIN_SET);
+            break;
+        case 1: //LED_On(LED1);
+        	HAL_GPIO_WritePin(LED_GREEN_GPIO_Port,  LED_GREEN_Pin , GPIO_PIN_SET);
+            break;
+        case 2: //LED_On(LED2);
+            HAL_GPIO_WritePin(LED_BLUE_GPIO_Port,  LED_BLUE_Pin , GPIO_PIN_SET);
+            break;
+        default: break;
+    }
+}
+
+void APP_LED_Write(uint8_t led)
+{
+    uint8_t mask, pin;
+
+    mask = 1;
+    pin = 0;
+    Nop();
+
+    for (i = 0; i < APP_N_LED; i++, pin++) {
+        if (led & mask) {
+            // Set LED
+            APP_LED_Set(pin);
+        } else {
+            // Clear LED
+            APP_LED_Clear(pin);
+        }
+
+        mask = mask << 1;
+    }
+}
+
+/***************************************************************************************************************
+*
+*       Section: Application Initialization and State Machine Functions                  V C U   E M U L A T O R
+*
+***************************************************************************************************************/
+
+
+/***************************************************************************************************************
+*     A P P _ I n i t i a l i z e                                                        V C U   E M U L A T O R
+***************************************************************************************************************/
+void VCU_Initialize(void)
+{
+
+
+
+  //clear the batteryModule Array
+  memset(module,0,sizeof(module));
+
+
+
+  serialOut("");
+  serialOut("");
+  serialOut("        ██    ██");
+  serialOut("     ██ ██ ██ ██ ██");
+  serialOut("     ██ ██ ██ ██ ██     VCU Emulator V1.0        (c) 2023");
+  serialOut("     ██ ██ ██ ██ ██     Modular Battery Technologies, Inc");
+  serialOut("     ██    ██    ██");
+  serialOut("     m o d b a t t");
+  serialOut("");
+
+
+	    // Switch state
+//    lastSwitchState.S1 = APP_SWITCH_RELEASED;
+
+#ifdef TEST_SPI
+    DRV_CANFDSPI_Reset(DRV_CANFDSPI_INDEX_0);
+
+    appData.state = APP_STATE_TEST_RAM_ACCESS;
+
+#else
+    /* Place the App state machine in its initial state. */
+    vcuData.state = VCU_STATE_TEST_RAM_ACCESS;
+#endif
+
+}
+
+/***************************************************************************************************************
+*     A P P _ T a s k s                                                                  V C U   E M U L A T O R
+***************************************************************************************************************/
+void VCU_Tasks(void)
+{
+
+
+    /* Check the application's current state. */
+    switch (vcuData.state) {
+            /* Application's initial state. */
+        case VCU_STATE_INIT:
+        {
+          if (DEBUG > 1) serialOut("APP_STATE_INIT");
+          //Nop();
+          APP_LED_Set(APP_INIT_LED);
+          APP_CANFDSPI_Init();
+          APP_LED_Clear(APP_INIT_LED);
+
+          vcuData.state = VCU_STATE_IDLE;
+          break;
+        }
+        case VCU_STATE_IDLE:
+        {
+          // Here we want to send the current state to the pack controller every 10s
+
+          VCU_ReceiveMessage_Tasks();
+
+          //Send Off
+          VCU_TransmitState(packOff);
+          HAL_Delay(10000);
+
+          //Send Standby
+          VCU_TransmitState(packStandby);
+          HAL_Delay(10000);
+
+
+          //Send Precharge
+          VCU_TransmitState(packPrecharge);
+          HAL_Delay(10000);
+
+
+          //Send On
+          VCU_TransmitState(packOn);
+          HAL_Delay(10000);
+
+
+
+          break;
+        }
+
+        case VCU_STATE_TEST_RAM_ACCESS:             // RAM access test
+        {
+          bool passed = VCU_TestRamAccess();
+          if (passed) { sprintf(tempBuffer,"     MCP2518FD RAM TEST      : PASSED"); serialOut(tempBuffer);
+          }else{        sprintf(tempBuffer,"     MCP2518FD RAM TEST      : FAILED"); serialOut(tempBuffer);
+          }
+          vcuData.state = VCU_STATE_TEST_REGISTER_ACCESS;
+          break;
+        }
+        case VCU_STATE_TEST_REGISTER_ACCESS: /* Register access test */
+        {
+          bool passed = VCU_TestRegisterAccess();
+          if (passed) { sprintf(tempBuffer,"     MCP2518FD REGISTER TEST : PASSED"); serialOut(tempBuffer);
+          }else{        sprintf(tempBuffer,"     MCP2518FD REGISTER TEST : FAILED"); serialOut(tempBuffer);
+          }
+          sprintf(tempBuffer," "); serialOut(tempBuffer);
+          vcuData.state = VCU_STATE_INIT;
+          break;
+        }
+        // The default state should never be executed
+        default:
+        {
+          /* TODO: Handle error in application's state machine. */
+          vcuData.state = VCU_STATE_INIT;
+          break;
+        }
+    }
+}
+
+/***************************************************************************************************************
+*
+*                              Section: Application Local Functions
+*
+***************************************************************************************************************/
+
+
+/***************************************************************************************************************
+*     A P P _ C A N F D S P I _ I n i t                                                  V C U   E M U L A T O R
+***************************************************************************************************************/
+void APP_CANFDSPI_Init(void)
+{
+    // Reset device
+    DRV_CANFDSPI_Reset(DRV_CANFDSPI_INDEX_0);
+
+    // Enable ECC and initialize RAM
+    DRV_CANFDSPI_EccEnable(DRV_CANFDSPI_INDEX_0);
+
+    DRV_CANFDSPI_RamInit(DRV_CANFDSPI_INDEX_0, 0xff);
+
+    // Configure device
+    DRV_CANFDSPI_ConfigureObjectReset(&config);
+    config.IsoCrcEnable = 1;
+    config.StoreInTEF = 0;
+
+    DRV_CANFDSPI_Configure(DRV_CANFDSPI_INDEX_0, &config);
+
+    // Setup TX FIFO
+    DRV_CANFDSPI_TransmitChannelConfigureObjectReset(&txConfig);
+    txConfig.FifoSize = 7;
+    txConfig.PayLoadSize = CAN_PLSIZE_64;
+    txConfig.TxPriority = 1;
+
+    DRV_CANFDSPI_TransmitChannelConfigure(DRV_CANFDSPI_INDEX_0, APP_TX_FIFO, &txConfig);
+
+    // Setup RX FIFO
+    DRV_CANFDSPI_ReceiveChannelConfigureObjectReset(&rxConfig);
+    rxConfig.FifoSize = 15;
+    rxConfig.PayLoadSize = CAN_PLSIZE_64;
+
+    DRV_CANFDSPI_ReceiveChannelConfigure(DRV_CANFDSPI_INDEX_0, APP_RX_FIFO, &rxConfig);
+
+    // Setup RX Filter
+    fObj.word = 0;
+    //fObj.bF.SID = 0xda;
+    fObj.bF.SID = 0x00;
+    fObj.bF.EXIDE = 0;
+    fObj.bF.EID = 0x00;
+
+    DRV_CANFDSPI_FilterObjectConfigure(DRV_CANFDSPI_INDEX_0, CAN_FILTER0, &fObj.bF);
+
+    // Setup RX Mask
+    mObj.word = 0;
+    mObj.bF.MSID = 0x0;
+    mObj.bF.MIDE = 1; // Only allow standard IDs
+    mObj.bF.MEID = 0x0;
+    DRV_CANFDSPI_FilterMaskConfigure(DRV_CANFDSPI_INDEX_0, CAN_FILTER0, &mObj.bF);
+
+    // Link FIFO and Filter
+    DRV_CANFDSPI_FilterToFifoLink(DRV_CANFDSPI_INDEX_0, CAN_FILTER0, APP_RX_FIFO, true);
+
+    // Setup Bit Time
+    DRV_CANFDSPI_BitTimeConfigure(DRV_CANFDSPI_INDEX_0, CAN_500K_2M, CAN_SSP_MODE_AUTO, CAN_SYSCLK_40M);
+
+    // Setup Transmit and Receive Interrupts
+    DRV_CANFDSPI_GpioModeConfigure(DRV_CANFDSPI_INDEX_0, GPIO_MODE_INT, GPIO_MODE_INT);
+	#ifdef APP_USE_TX_INT
+    DRV_CANFDSPI_TransmitChannelEventEnable(DRV_CANFDSPI_INDEX_0, APP_TX_FIFO, CAN_TX_FIFO_NOT_FULL_EVENT);
+	#endif
+    DRV_CANFDSPI_ReceiveChannelEventEnable(DRV_CANFDSPI_INDEX_0, APP_RX_FIFO, CAN_RX_FIFO_NOT_EMPTY_EVENT);
+    DRV_CANFDSPI_ModuleEventEnable(DRV_CANFDSPI_INDEX_0, CAN_TX_EVENT | CAN_RX_EVENT);
+
+    // Select Normal Mode
+    DRV_CANFDSPI_OperationModeSelect(DRV_CANFDSPI_INDEX_0, CAN_NORMAL_MODE);
+}
+
+/***************************************************************************************************************
+*     A P P _ R e c e i v e M e s s a g e _ T a s k s                                    V C U   E M U L A T O R
+***************************************************************************************************************/
+void VCU_ReceiveMessage_Tasks(void)
+{
+
+    // CANPKT_REGISTER registration;
+    //uint8_t index;
+
+    // Check if FIFO is not empty
+    DRV_CANFDSPI_ReceiveChannelEventGet(DRV_CANFDSPI_INDEX_0, APP_RX_FIFO, &rxFlags);
+
+    while ( rxFlags & CAN_RX_FIFO_NOT_EMPTY_EVENT){
+
+      // Get message
+      DRV_CANFDSPI_ReceiveMessageGet(DRV_CANFDSPI_INDEX_0, APP_RX_FIFO, &rxObj, rxd, MAX_DATA_BYTES);
+
+      switch (rxObj.bF.id.SID) {
+        case ID_BMS_DATA_1:
+          break;
+        case ID_BMS_DATA_2:
+          break;
+        case ID_BMS_DATA_3:
+          break;
+        case ID_BMS_DATA_5:
+          break;
+        case ID_BMS_DATA_8:
+          break;
+        case ID_BMS_DATA_9:
+          break;
+        case ID_BMS_DATA_10:
+          break;
+        case ID_BMS_STATE:
+          break;
+        default:
+          sprintf(tempBuffer,"MC RX UNKNOWN ID=0x%03x : EID=0x%08x : Byte[0..7]=0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x",rxObj.bF.id.SID,rxObj.bF.id.EID,rxd[0],rxd[1],rxd[2],rxd[3],rxd[4],rxd[5],rxd[6],rxd[7]); serialOut(tempBuffer);
+          break;
+      }
+
+
+      // check for any more messages
+      DRV_CANFDSPI_ReceiveChannelEventGet(DRV_CANFDSPI_INDEX_0, APP_RX_FIFO, &rxFlags);
+    }
+
+    //    APP_LED_Clear(APP_RX_LED);
+
+
+    canRxInterrupt = 0;
+
+}
+/***************************************************************************************************************
+*     A P P _ T r a n s m i t M e s s a g e Q u e u e                                    V C U   E M U L A T O R
+***************************************************************************************************************/
+void VCU_TransmitMessageQueue(void)
+{
+    APP_LED_Set(APP_TX_LED);
+
+    uint8_t attempts = MAX_TXQUEUE_ATTEMPTS;
+
+    // Check if FIFO is not full
+    do {
+        DRV_CANFDSPI_TransmitChannelEventGet(DRV_CANFDSPI_INDEX_0, APP_TX_FIFO, &txFlags);
+        if (attempts == 0) {
+            Nop();
+            Nop();
+            DRV_CANFDSPI_ErrorCountStateGet(DRV_CANFDSPI_INDEX_0, &tec, &rec, &errorFlags);
+            return;
+        }
+        attempts--;
+    }
+    while (!(txFlags & CAN_TX_FIFO_NOT_FULL_EVENT));
+
+    // Load message and transmit
+    uint8_t n = DRV_CANFDSPI_DlcToDataBytes(txObj.bF.ctrl.DLC);
+
+    DRV_CANFDSPI_TransmitChannelLoad(DRV_CANFDSPI_INDEX_0, APP_TX_FIFO, &txObj, txd, n, true);
+
+    APP_LED_Clear(APP_TX_LED);
+}
+
+/***************************************************************************************************************
+*     A P P _ A n n o u n c e U n r e g i s t e r e d M o d u l e s                      V C U   E M U L A T O R
+***************************************************************************************************************/
+/*
+void APP_AnnounceUnregisteredModules(void){
+
+  uint8_t index;
+  CANPKT_ANNOUNCE announcement;
+
+  // check for unregistered modules and send out ANNOUNCE packets
+  for(index = 0; index < MAX_MODULES_PER_PACK; index++){
+    if((module[index].uniqueId != 0) && (module[index].moduleId == 0)){
+
+      announcement.moduleFw = module[index].fwVersion;        // fill in the details
+      announcement.moduleHw = module[index].hwVersion;
+      announcement.modulePartId = module[index].partId;
+      announcement.moduleMfgId = module[index].mfgId;
+      announcement.moduleUniqueId = module[index].uniqueId;
+
+      txObj.word[0] = 0;                              // Configure transmit message
+      txObj.word[1] = 0;
+
+      memcpy(txd, &announcement, 8);
+
+      txObj.bF.id.SID = PKT_MODULE_ANNOUNCE;          // Standard ID
+      txObj.bF.id.EID = 0;                            // Extended ID
+
+      txObj.bF.ctrl.BRS = 0;                          // Bit Rate Switch - use DBR when set, NBR when cleared
+      txObj.bF.ctrl.DLC = CAN_DLC_8;                  // 8 bytes to transmit
+      txObj.bF.ctrl.FDF = 0;                          // Frame Data Format - CAN FD when set, CAN 2.0 when cleared
+      txObj.bF.ctrl.IDE = 0;                          // ID Extension selection - send base frame when cleared, extended frame when set
+
+      sprintf(tempBuffer,"TX 0x500 Announcement: FW=%02x, HW=%02x, MFG=%02x, PN=%02x, ID=%08x",announcement.moduleFw, announcement.moduleHw, announcement.moduleMfgId, announcement.modulePartId,(int)announcement.moduleUniqueId); serialOut(tempBuffer);
+
+      APP_TransmitMessageQueue();                     // Send it
+
+      HAL_Delay(1000);
+    }
+  }
+}
+*/
+
+/***************************************************************************************************************
+*     V C U _ T  r a n s m i t S t a t e                                                 V C U   E M U L A T O R
+***************************************************************************************************************/
+
+
+void VCU_TransmitState(packState state){
+
+  CANFRM_0x400_VCU_COMMAND command;
+  memset(&command,0,sizeof(command));
+
+  command.vcu_contactor_ctrl = state;
+
+  txObj.word[0] = 0;                              // Configure transmit message
+  txObj.word[1] = 0;
+  txObj.word[2] = 0;
+
+  memcpy(txd, &command, 12);
+
+  txObj.bF.id.SID = ID_VCU_COMMAND  ;          // Standard ID
+  txObj.bF.id.EID = 0;                            // Extended ID
+
+  txObj.bF.ctrl.BRS = 0;                          // Bit Rate Switch - use DBR when set, NBR when cleared
+  txObj.bF.ctrl.DLC = CAN_DLC_24;                  // 8 bytes to transmit
+  txObj.bF.ctrl.FDF = 0;                          // Frame Data Format - CAN FD when set, CAN 2.0 when cleared
+  txObj.bF.ctrl.IDE = 0;                          // ID Extension selection - send base frame when cleared, extended frame when set
+
+  sprintf(tempBuffer,"TX 0x400 Command: STATE=%02x",state); serialOut(tempBuffer);
+  VCU_TransmitMessageQueue();                     // Send it
+  //APP_TransmitCellZeroDetails(index);
+}
+
+
+
+
+
+
+/***************************************************************************************************************
+*     V C U _ T i c k s S i n c e L a s t M e s s a g e                                  V C U   E M U L A T O R
+***************************************************************************************************************/
+uint32_t VCU_TicksSinceLastMessage(void)
+{
+  uint32_t elapsedTicks;
+
+  if ((etTimerOverflows - pack.lastFrame.overflows) == 0){
+    elapsedTicks = htim1.Instance->CNT - pack.lastFrame.ticks;
+  }else{
+    //             (ticks last contact to overflow point)         + (              ticks in completed overflows                                 )                               + ( ticks in current timer period)
+    elapsedTicks = ((htim1.Init.Period +1) - pack.lastFrame.ticks) + ( (htim1.Init.Period +1) * (etTimerOverflows - (pack.lastFrame.overflows +1))) + (htim1.Instance->CNT);
+  }
+  return elapsedTicks;
+
+}
+
+
+/***************************************************************************************************************
+*     V C U _ T i c k s S i n c e L a s t S t a t u s                                    V C U   E M U L A T O R
+***************************************************************************************************************/
+uint32_t VCU_TicksSinceLastStatus(void)
+{
+  uint32_t elapsedTicks;
+
+  if ((etTimerOverflows - status.overflows) == 0){
+    elapsedTicks = htim1.Instance->CNT - status.ticks;
+  }else{
+    //             (ticks last contact to overflow point)  + (  ticks in completed overflows   + ( ticks in current timer period)
+    elapsedTicks = ((htim1.Init.Period +1) - status.ticks) + ( (htim1.Init.Period +1) * (etTimerOverflows - (status.overflows +1))) + (htim1.Instance->CNT);
+  }
+  return elapsedTicks;
+
+}
+
+
+
+/***************************************************************************************************************
+*     A P P _ T e s t R e g i s t e r A c c e s s                                        V C U   E M U L A T O R
+***************************************************************************************************************/
+bool VCU_TestRegisterAccess(void)
+{
+    // Variables
+    uint8_t length;
+    bool good = false;
+
+    Nop();
+
+    // Verify read/write with different access length
+    // Note: registers can be accessed in multiples of bytes
+    for (length = 1; length <= MAX_DATA_BYTES; length++) {
+        for (i = 0; i < length; i++) {
+            txd[i] = rand() & 0x7f; // Bit 31 of Filter objects is not implemented
+            rxd[i] = 0xff;
+        }
+
+        Nop();
+
+        // Write data to registers
+        DRV_CANFDSPI_WriteByteArray(DRV_CANFDSPI_INDEX_0, cREGADDR_CiFLTOBJ, txd, length);
+
+        // Read data back from registers
+        DRV_CANFDSPI_ReadByteArray(DRV_CANFDSPI_INDEX_0, cREGADDR_CiFLTOBJ, rxd, length);
+
+        // Verify
+        good = false;
+        for (i = 0; i < length; i++) {
+            good = txd[i] == rxd[i];
+
+            if (!good) {
+                Nop();
+                Nop();
+                // Data mismatch
+                return false;
+            }
+        }
+    }
+    Nop();
+    Nop();
+    return true;
+}
+
+
+/***************************************************************************************************************
+*     A P P _ T e s t R a m A c c e s s                                                  V C U   E M U L A T O R
+***************************************************************************************************************/
+bool VCU_TestRamAccess(void)
+{
+    // Variables
+    uint8_t length;
+    bool good = false;
+
+    Nop();
+
+    // Verify read/write with different access length
+    // Note: RAM can only be accessed in multiples of 4 bytes
+    for (length = 4; length <= MAX_DATA_BYTES; length += 4) {
+        for (i = 0; i < length; i++) {
+            txd[i] = rand() & 0xff;
+            rxd[i] = 0xff;
+        }
+
+        Nop();
+
+        // Write data to RAM
+        DRV_CANFDSPI_WriteByteArray(DRV_CANFDSPI_INDEX_0, cRAMADDR_START, txd, length);
+
+        // Read data back from RAM
+        DRV_CANFDSPI_ReadByteArray(DRV_CANFDSPI_INDEX_0, cRAMADDR_START, rxd, length);
+
+        // Verify
+        good = false;
+        for (i = 0; i < length; i++) {
+            good = txd[i] == rxd[i];
+
+            if (!good) {
+                Nop();
+                Nop();
+
+                // Data mismatch
+                return false;
+            }
+        }
+    }
+
+    return true;
+}

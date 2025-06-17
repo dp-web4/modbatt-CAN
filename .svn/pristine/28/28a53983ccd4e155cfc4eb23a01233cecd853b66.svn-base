@@ -1,0 +1,12 @@
+../Core/Src/vcu.c:69:6:VCU_ReceiveMessages	64	static
+../Core/Src/vcu.c:103:6:VCU_TransmitMessageQueue	32	static,ignoring_inline_asm
+../Core/Src/vcu.c:135:6:VCU_ProcessVcuCommand	24	static
+../Core/Src/vcu.c:208:10:VCU_TicksSinceLastMessage	16	static
+../Core/Src/vcu.c:227:6:VCU_TransmitBmsState	16	static
+../Core/Src/vcu.c:268:6:VCU_TransmitBmsData1	40	static
+../Core/Src/vcu.c:344:6:VCU_TransmitBmsData2	4	static
+../Core/Src/vcu.c:359:6:VCU_TransmitBmsData3	4	static
+../Core/Src/vcu.c:376:6:VCU_TransmitBmsData5	4	static
+../Core/Src/vcu.c:392:6:VCU_TransmitBmsData8	4	static
+../Core/Src/vcu.c:409:6:VCU_TransmitBmsData9	4	static
+../Core/Src/vcu.c:425:6:VCU_TransmitBmsData10	4	static

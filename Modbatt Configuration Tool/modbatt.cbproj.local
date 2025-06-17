@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<BorlandProject>
+	<Transactions>
+    <Transaction>2024/03/09 11:26:17.000.532,=D:\Dropbox\!Modbatt\Modbatt Configuration Tool\Include\can_id_bms_vcu.h</Transaction>
+    <Transaction>2024/03/09 11:26:17.000.526,=D:\Dropbox\!Modbatt\Modbatt Configuration Tool\Include\can_frm_vcu.h</Transaction>
+    <Transaction>2024/03/09 14:27:02.000.086,D:\Dropbox\!Modbatt\Modbatt Configuration Tool\PCANBasicExample.res=</Transaction>
+    <Transaction>2024/03/10 15:15:19.000.949,=D:\Dropbox\!Modbatt\Modbatt Configuration Tool\vcu.c</Transaction>
+    <Transaction>2024/03/10 15:22:41.000.837,D:\Dropbox\!Modbatt\Modbatt Configuration Tool\vcu.c=</Transaction>
+    <Transaction>2024/03/11 10:10:35.000.016,=D:\Dropbox\!Modbatt\Modbatt Configuration Tool\modbatt.res</Transaction>
+    <Transaction>2024/08/08 14:29:25.000.155,=D:\Dropbox\!Modbatt\Modbatt Configuration Tool\Include\bms.h</Transaction>
+  </Transactions>
+	<ProjectSortOrder AutoSort="0" SortType="0">
+    <File Path="Include"/>
+    <File Path="Include\bms.h"/>
+    <File Path="Include\can_frm_vcu.h"/>
+    <File Path="Include\can_id_bms_vcu.h"/>
+    <File Path="modbatt.cpp"/>
+    <File Path="modbatt.res"/>
+    <File Path="PCANBasicClass.cpp"/>
+    <File Path="Unit1.cpp"/>
+    <File Path="Unit1.cpp"/>
+    <File Path="Unit1.dfm"/>
+    <File Path="Unit1.h"/>
+  </ProjectSortOrder>
+</BorlandProject>

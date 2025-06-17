@@ -1,0 +1,150 @@
+/***************************************************************************************************************
+ * @file           : app.h                                                         P A C K   C O N T R O L L E R
+ * @brief          : Application header file
+ ***************************************************************************************************************
+ *
+ * Copyright (c) 2023 Modular Battery Technologies, Inc
+ *
+ **************************************************************************************************************/
+#ifndef MOD_H_
+#define MOD_H_
+
+// Include files
+#include "canfdspi_api.h"
+//#include "main.h"
+//#include "bms.h"
+
+/***************************************************************************************************************
+*
+*                      Section: Type Definitions                                   P A C K   C O N T R O L L E R
+*
+***************************************************************************************************************/
+
+//#define TEST_SPI
+#define PACK_ID    0
+#define HW_VER     0
+#define FW_VER     0
+
+
+//! Use RX and TX Interrupt pins to check FIFO status
+#define MOD_USE_RX_INT
+#define MAX_TXQUEUE_ATTEMPTS 50
+
+// Switches
+#define MOD_SWITCH_RELEASED true  //Switch has an internal pullup when not pressed - input = 1
+#define MOD_SWITCH_PRESSED  false  //Switch connects to ground when pressed - input  = 0
+#define MOD_DEBOUNCE_TIME  100
+#define MOD_S1_READ() (HAL_GPIO_ReadPin(BUTTON1_GPIO_Port, BUTTON1_Pin))
+
+
+// Interrupt pin GPIO macros
+#define MOD_INT()		  (HAL_GPIO_ReadPin(CAN2_INT_GPIO_Port, CAN2_INT_Pin))
+#define MOD_TX_INT()	(HAL_GPIO_ReadPin(CAN2_INT0_GPIO_Port, CAN2_INT0_Pin))
+#define MOD_RX_INT()	(HAL_GPIO_ReadPin(CAN2_INT1_GPIO_Port, CAN2_INT1_Pin))
+
+// Transmit Channels
+#define MOD_TX_FIFO CAN_FIFO_CH2
+
+// Receive Channels
+#define MOD_RX_FIFO CAN_FIFO_CH1
+
+#define MOD_ET_WARNING     10000  // Module warning 10 seconds
+#define MOD_ET_TIMEOUT     15000  // Module timeout 15 seconds
+#define VCU_ET_WARNING     600    // VCU warning 0.6 seconds
+#define VCU_ET_TIMEOUT     1200   // VCU timeout 1.2 seconds
+
+/***************************************************************************************************************
+* Application states                                                               P A C K   C O N T R O L L E R
+
+  Summary:
+    Application states enumeration
+
+  Description:
+    This enumeration defines the valid application states.  These states
+    determine the behavior of the application at various times.
+***************************************************************************************************************/
+
+typedef enum {
+    // Initialization
+    PC_STATE_INIT = 0,
+
+    // Normal run state
+    PC_STATE_RUN
+
+} PC_STATES;
+
+//extern PC_STATES PC_STATE;
+
+/***************************************************************************************************************
+* Application Data                                                                 P A C K   C O N T R O L L E R
+
+  Summary:
+    Holds application data
+
+  Description:
+    This structure holds the application's data.
+
+  Remarks:
+    Application strings and buffers are be defined outside this structure.
+***************************************************************************************************************/
+
+typedef struct {
+    /* The application's current state */
+    PC_STATES state;
+
+    /* TODO: Define any additional data used by the application. */
+
+
+} MOD_DATA;
+
+extern MOD_DATA appData;
+//extern batteryPack pack;
+
+/***************************************************************************************************************
+*
+*       Section: Application Initialization and State Machine Functions            P A C K   C O N T R O L L E R
+*
+***************************************************************************************************************/
+//! Application Initialization
+void PC_Initialize(void);
+
+//! Application Tasks
+// This routine must be called from SYS_Tasks() routine.
+void PC_Tasks(void);
+
+
+//! Initialize CANFDSPI
+void DRV_CANFDSPI_Init(CANFDSPI_MODULE_ID index);
+
+//! Add message to transmit FIFO
+void MOD_TransmitMessageQueue(CANFDSPI_MODULE_ID index);
+
+//! Decode received messages
+void MOD_ReceiveMessages(void);
+
+void MOD_RegisterModule(void);
+void MOD_DeRegisterAllModules(void);
+void MOD_IsolateAllModules(void);
+void MOD_RequestModuleStatus(uint8_t moduleId);
+void MOD_ProcessModuleStatus1(void);
+void MOD_ProcessModuleStatus2(void);
+void MOD_ProcessModuleStatus3(void);
+
+void MOD_RequestCellDetail(uint8_t moduleId);
+void MOD_ProcessCellDetail(void);
+
+//! Transmit switch state
+void MOD_TransmitSwitchState(void);
+
+extern uint8_t MOD_FindMaxVoltageModule(void);
+extern uint8_t MOD_ModuleIndexFromId(uint8_t moduleId);
+//extern void MOD_TransmitState(uint8_t moduleId, moduleState state);
+
+
+uint32_t MOD_TicksSinceLastMessage(uint8_t moduleId);
+
+//! Test CAN SPI
+bool CAN_TestRegisterAccess(CANFDSPI_MODULE_ID index);
+bool CAN_TestRamAccess(CANFDSPI_MODULE_ID index);
+
+#endif /* MOD_H_ */

@@ -1,0 +1,13 @@
+../Core/Src/app.c:110:6:APP_LED_Clear	16	static
+../Core/Src/app.c:126:6:APP_LED_Set	16	static
+../Core/Src/app.c:142:6:APP_LED_Write	24	static,ignoring_inline_asm
+../Core/Src/app.c:173:6:VCU_Initialize	8	static
+../Core/Src/app.c:212:6:VCU_Tasks	16	static
+../Core/Src/app.c:298:6:APP_CANFDSPI_Init	8	static
+../Core/Src/app.c:367:6:VCU_ReceiveMessage_Tasks	64	static
+../Core/Src/app.c:417:6:VCU_TransmitMessageQueue	24	static,ignoring_inline_asm
+../Core/Src/app.c:491:6:VCU_TransmitState	24	static
+../Core/Src/app.c:525:10:VCU_TicksSinceLastMessage	16	static
+../Core/Src/app.c:543:10:VCU_TicksSinceLastStatus	16	static
+../Core/Src/app.c:562:6:VCU_TestRegisterAccess	16	static,ignoring_inline_asm
+../Core/Src/app.c:608:6:VCU_TestRamAccess	16	static,ignoring_inline_asm
