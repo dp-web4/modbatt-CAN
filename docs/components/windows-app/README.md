@@ -16,11 +16,12 @@
 The ModBatt Configuration Tool is a Windows desktop application built using Borland C++ Builder (Embarcadero RAD Studio). It provides a comprehensive interface for monitoring, configuring, and diagnosing modular battery systems through CAN bus communication.
 
 ### Key Features
-- **Real-time Monitoring**: Live battery pack and module telemetry
-- **Configuration Management**: EEPROM parameter programming
-- **Diagnostic Tools**: CAN message analysis and fault detection
-- **Data Logging**: Historical data capture and analysis
-- **Multi-pack Support**: Monitor multiple battery packs simultaneously
+- **Real-time Monitoring**: Live battery pack and module telemetry display
+- **State Control**: Direct pack and module state commands (Off/Standby/Precharge/On)
+- **Multi-pack Support**: Monitor up to 8 battery packs with configurable ID offsets
+- **Direct Module Control (DMC)**: Individual module state control capability
+- **EEPROM Access**: Remote parameter read/write via CAN commands
+- **Comprehensive Display**: Pack data, module data, cell statistics, and fault information
 
 ### Technology Stack
 - **Framework**: Borland C++ Builder / Embarcadero RAD Studio
@@ -86,10 +87,11 @@ Modbatt Configuration Tool/
 **Primary application window managing all user interactions**
 
 #### Key Responsibilities:
-- CAN hardware connection management
-- Real-time data display
-- User input handling
-- Message processing coordination
+- PCAN hardware detection and connection management
+- Real-time data display with 100ms refresh rate
+- Pack and module state control transmission
+- CAN message reception and processing
+- Thread-safe UI updates via critical sections
 
 #### Major UI Groups:
 ```cpp
@@ -381,45 +383,76 @@ void TForm1::SetupMessageFilters() {
 
 ## Message Processing
 
+### Complete Data Flow
+
+The Windows app represents the top of the BMS data hierarchy:
+
+```
+[CellCPU] → [ModuleCPU] → [Pack Controller] → [Windows App]
+   ↓            ↓              ↓                    ↓
+ATtiny45    ATmega64M1    STM32WB55         Windows PC
+   ↓            ↓              ↓                    ↓
+Cell Data   Module Data   Pack Data         User Display
+(20kbps)    (CAN 250k)    (CAN 500k)       (PCAN-USB)
+```
+
 ### Received Message Handler
 
 ```cpp
 void TForm1::ProcessMessage(TPCANMsgFD theMsg, TPCANTimestampFD itsTimeStamp) {
-    // Determine message type based on ID
-    switch (theMsg.ID) {
-        case ID_BMS_STATE:          // 0x410
+    // Apply pack ID offset if configured
+    uint32_t baseId = theMsg.ID - (packOffset * 0x100);
+    
+    // Route messages based on ID
+    switch (baseId) {
+        // Pack-level messages from Pack Controller
+        case ID_BMS_STATE:          // 0x410 - Pack state and status
             ProcessState(theMsg);
             break;
             
-        case ID_BMS_DATA_1:         // 0x421
+        case ID_BMS_DATA_1:         // 0x421 - Voltage, current, SOC, SOH
             ProcessData1(theMsg);
             break;
             
-        case ID_BMS_DATA_2:         // 0x422
+        case ID_BMS_DATA_2:         // 0x422 - Cell voltage statistics
             ProcessData2(theMsg);
             break;
             
-        // ... additional data frames
+        case ID_BMS_DATA_3:         // 0x423 - Cell temperature statistics
+            ProcessData3(theMsg);
+            break;
             
-        case ID_MODULE_STATE:       // 0x411
+        case ID_BMS_DATA_5:         // 0x425 - Charge/discharge limits
+            ProcessData5(theMsg);
+            break;
+            
+        case ID_BMS_DATA_10:        // 0x430 - Isolation resistance
+            ProcessData10(theMsg);
+            break;
+            
+        // Module-specific messages (selected module only)
+        case ID_MODULE_STATE:       // 0x411 - Module state and faults
             ProcessModuleState(theMsg);
             break;
             
-        case ID_MODULE_POWER:       // 0x412
+        case ID_MODULE_POWER:       // 0x412 - Module voltage and current
             ProcessModulePower(theMsg);
             break;
             
-        case ID_BMS_EEPROM_DATA:    // 0x441
-            ProcessEEPROMData(theMsg);
+        case ID_MODULE_CELL_V:      // 0x413 - Cell voltage details
+            ProcessModuleCellVoltage(theMsg);
             break;
             
-        default:
-            // Log unknown message
-            IncludeTextMessage("Unknown message ID: 0x" + 
-                              IntToHex(theMsg.ID, 3));
+        case ID_MODULE_CELL_T:      // 0x414 - Cell temperature details
+            ProcessModuleCellTemp(theMsg);
+            break;
+            
+        case ID_BMS_TIME_REQUEST:   // 0x444 - RTC sync request
+            ProcessTimeRequest();
+            break;
     }
     
-    // Update message list display
+    // Update message list for diagnostics
     InsertMsgEntry(theMsg, itsTimeStamp);
 }
 ```
@@ -552,11 +585,94 @@ bool ValidatePackData(const PackData& data) {
 }
 ```
 
+## Control Capabilities
+
+### State Control System
+
+The application provides two distinct control modes:
+
+#### 1. Pack Control Mode (Default)
+```cpp
+void TForm1::tmrStateTimer(TObject *Sender) {
+    if (chkSendState->Checked && !chkDMC->Checked) {
+        // Send pack state command
+        TPCANMsgFD msg;
+        msg.ID = ID_VCU_STATE + packOffset;  // 0x400 + offset
+        msg.MSGTYPE = PCAN_MESSAGE_STANDARD;
+        msg.DLC = 3;
+        
+        // Byte 0: Requested state
+        msg.Data[0] = cboState->ItemIndex;  // 0=Off, 1=Standby, 2=Precharge, 3=On
+        
+        // Bytes 1-2: HV bus voltage (inverter voltage)
+        uint16_t voltage = StrToInt(editInverter->Text);
+        msg.Data[1] = voltage & 0xFF;
+        msg.Data[2] = (voltage >> 8) & 0xFF;
+        
+        m_objPCANBasic->WriteFD(m_PcanHandle, &msg);
+    }
+}
+```
+
+#### 2. Direct Module Control (DMC) Mode
+```cpp
+void TForm1::chkDMCClick(TObject *Sender) {
+    if (chkDMC->Checked) {
+        // Enable module-specific control
+        cboModuleId->Enabled = true;
+        lblModules->Caption = "Direct Module Control Active";
+        
+        // Send module state command
+        TPCANMsgFD msg;
+        msg.ID = ID_VCU_STATE + packOffset;  // 0x400 + offset
+        msg.MSGTYPE = PCAN_MESSAGE_STANDARD;
+        msg.DLC = 4;
+        
+        // Byte 0: Requested state with DMC flag
+        msg.Data[0] = cboState->ItemIndex | 0x80;  // Set bit 7 for DMC
+        
+        // Bytes 1-2: HV bus voltage
+        uint16_t voltage = StrToInt(editInverter->Text);
+        msg.Data[1] = voltage & 0xFF;
+        msg.Data[2] = (voltage >> 8) & 0xFF;
+        
+        // Byte 3: Target module ID
+        msg.Data[3] = cboModuleId->ItemIndex;
+        
+        m_objPCANBasic->WriteFD(m_PcanHandle, &msg);
+    }
+}
+```
+
+### Time Synchronization
+
+The app responds to RTC sync requests from Pack Controller:
+
+```cpp
+void TForm1::ProcessTimeRequest(void) {
+    // Get current system time
+    time_t now = time(NULL);
+    
+    // Send time response
+    TPCANMsgFD msg;
+    msg.ID = ID_VCU_TIME_RESPONSE + packOffset;  // 0x445
+    msg.MSGTYPE = PCAN_MESSAGE_STANDARD;
+    msg.DLC = 8;
+    
+    // Send 64-bit time_t value
+    for (int i = 0; i < 8; i++) {
+        msg.Data[i] = (now >> (i * 8)) & 0xFF;
+    }
+    
+    m_objPCANBasic->WriteFD(m_PcanHandle, &msg);
+}
+```
+
 ## Configuration Features
 
 ### EEPROM Parameter Management
 
-The application provides comprehensive EEPROM parameter configuration:
+The application provides direct EEPROM access in the Pack Controller:
 
 ```cpp
 // Parameter types
@@ -623,4 +739,48 @@ void TForm1::btnPackParamSetClick(TObject *Sender) {
 }
 ```
 
-This Windows application serves as the primary interface for interacting with the ModBatt system, providing comprehensive monitoring, configuration, and diagnostic capabilities through a user-friendly graphical interface.
+### Parameter Validation
+
+```cpp
+bool ValidateParameterValue(ParameterType param, float value) {
+    switch (param) {
+        case PARAM_PACK_ID:
+            return (value >= 0 && value <= 7);
+            
+        case PARAM_MAX_CHARGE_CURRENT:
+            return (value >= 0 && value <= 500);
+            
+        case PARAM_MAX_DISCHARGE_CURRENT:
+            return (value >= 0 && value <= 500);
+            
+        // Additional parameter validations...
+    }
+    return false;
+}
+```
+
+## Summary
+
+The ModBatt Configuration Tool serves as the primary user interface for the entire battery management system hierarchy:
+
+### Data Flow Summary
+1. **CellCPUs** collect individual cell voltages and temperatures
+2. **ModuleCPUs** aggregate data from up to 94 cells and manage balancing
+3. **Pack Controller** coordinates up to 32 modules and interfaces with vehicle
+4. **Windows App** displays all data and provides operator control
+
+### Key Capabilities
+- **Real-time Monitoring**: Complete visibility of pack, module, and cell data
+- **State Control**: Safe state transitions with hardware interlocks
+- **Multi-pack Support**: Monitor up to 8 packs simultaneously  
+- **Direct Module Control**: Individual module management for diagnostics
+- **EEPROM Configuration**: Remote parameter management
+- **Fault Detection**: Comprehensive error reporting and diagnostics
+
+### Communication Architecture
+- **PCAN-USB Interface**: Reliable PC-to-CAN connectivity
+- **Event-driven Reception**: Efficient message processing
+- **Thread-safe Operation**: Robust concurrent data handling
+- **Multiple Reading Modes**: Event, timer, or manual polling
+
+This Windows application provides operators with complete control and visibility over the ModBatt modular battery system, ensuring safe and efficient operation through its intuitive graphical interface.

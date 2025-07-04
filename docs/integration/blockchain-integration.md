@@ -13,9 +13,11 @@
 
 ## Overview
 
-The ModBatt CAN system integrates with the web4-modbatt-demo blockchain to provide decentralized battery management, component identity verification, and energy transaction tracking. This integration bridges the physical battery hardware with the blockchain-based digital twin system.
+The ModBatt CAN system is designed to integrate with the web4-modbatt-demo blockchain to provide decentralized battery management, component identity verification, and energy transaction tracking. This integration will bridge the physical battery hardware with the blockchain-based digital twin system.
 
-### Integration Goals
+> ⚠️ **Development Status**: The blockchain integration is currently in planning phase. The blockchain itself is scaffolded but core business logic is not implemented. The integration patterns and code examples in this document represent the planned architecture and are not yet functional.
+
+### Integration Goals (Planned)
 
 **Component Identity Verification**
 - Map physical battery components to blockchain identities
@@ -817,4 +819,61 @@ void ProcessOfflineQueue(void) {
 }
 ```
 
-This comprehensive blockchain integration enables the ModBatt CAN system to participate in a decentralized battery management ecosystem while maintaining reliable local operation and providing rich data for system optimization and energy trading.
+### Current Implementation Gaps
+
+The following components need to be developed before this integration can be functional:
+
+#### Blockchain Side
+1. **Core Business Logic**: All module message handlers currently contain TODO placeholders
+2. **Component Registration**: No actual registration logic implemented
+3. **Trust Calculations**: Trust tensor algorithms not implemented
+4. **Energy Operations**: Energy transfer and settlement logic missing
+5. **LCT Management**: Linked Context Token creation and management not implemented
+
+#### Integration Layer
+1. **Bridge Service**: No service exists to connect Windows app to blockchain
+2. **Key Management**: No solution for managing blockchain keys for BMS components
+3. **Transaction Builder**: No library to construct blockchain transactions from BMS data
+4. **Event Listeners**: No mechanism to subscribe to blockchain events
+
+#### Windows App Side
+1. **Blockchain UI**: No interface elements for blockchain interaction
+2. **Wallet Integration**: No cryptocurrency wallet functionality
+3. **Transaction Monitoring**: No way to view blockchain transactions
+4. **Configuration Sync**: No blockchain configuration management
+
+### Development Roadmap
+
+#### Phase 1: Blockchain Core (Current Priority)
+- Implement basic component registration in blockchain
+- Add pairing authentication logic
+- Create energy transfer operations
+- Develop trust calculation algorithms
+
+#### Phase 2: Integration Bridge
+- Develop Windows service for blockchain bridge
+- Implement key management for BMS components
+- Create transaction construction library
+- Add event subscription system
+
+#### Phase 3: Windows App Integration
+- Add blockchain status indicators to UI
+- Implement wallet management interface
+- Create transaction history view
+- Add blockchain configuration panel
+
+#### Phase 4: End-to-End Testing
+- Test component registration flow
+- Verify energy tracking accuracy
+- Validate trust calculations
+- Test offline operation queuing
+
+#### Phase 5: Production Deployment
+- Security audit of integration
+- Performance optimization
+- Documentation completion
+- Deployment procedures
+
+### Conclusion
+
+This comprehensive blockchain integration design will enable the ModBatt CAN system to participate in a decentralized battery management ecosystem while maintaining reliable local operation. However, significant development work remains before this vision can be realized. The modular architecture allows for incremental implementation and testing of individual components.
