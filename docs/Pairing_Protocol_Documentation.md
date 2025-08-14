@@ -8,11 +8,12 @@ The Modbatt system uses a sophisticated dual-layer encryption protocol to secure
 
 ### LCT/Device Communication Layer
 
-Each device in the system has a paired LCT (Local Communication Terminal) that handles secure communications. The architecture uses asymmetric key pairs where:
+Each device in the system has a paired LCT (Linked Context Token) that manages blockchain relationships and cryptographic material. The LCT tokens provide:
 
-- Each LCT generates a private and "public" key pair
-- The "public" keys are not made truly public, but only shared between paired LCT-device pairs
-- All device-to-LCT messages are encrypted/decrypted using these asymmetric keys
+- Blockchain-registered relationships between components
+- Device key halves for secure communication
+- Web4 operational keys for blockchain operations
+- Immutable audit trail of component interactions
 
 ### Device-Device Pairing Process
 
