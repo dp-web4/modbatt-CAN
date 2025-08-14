@@ -2,129 +2,286 @@
 
 ## Current State
 
-- Device registration with blockchain completed
-- Device and LCT key halves received from API-bridge interface
-- Pairing protocol architecture documented
+- Three-tier transaction protocol defined: Binding, Pairing, Validation
+- Semi-public key architecture established for zero-knowledge auth controller
+- 7-level validation hierarchy with escalation mechanisms
+- Access data and LCT information integrated throughout protocol
 
 ## Implementation Roadmap
 
-### Phase 1: Key Reconstruction and Pairing
+### Phase 1: Binding Transaction Implementation
 
-#### 1.1 Key Storage and Management
-**Pack Controller Tasks:**
-- Store 64-byte device key half from API-Bridge LCT creation
-- Store 64-byte LCT key half from API-Bridge LCT creation
-- Store app's public key for encrypted responses
-- Implement secure flash storage mechanism
+#### 1.1 Binding API Implementation
+**Device/Entity Requirements:**
+- Implement `/api/binding/generate-keys` endpoint
+- Accept partner access data as input
+- Generate asymmetric key pair (semi-public/private)
+- Store partner access data and private key securely
+- Return semi-public key to auth controller
 
-**Battery Module Tasks:**
-- Receive and store 64-byte device key half from pack controller
-- Implement secure key storage mechanism
-- Prepare for encrypted CAN communication
+**Auth Controller Requirements:**
+- Validate binding authority through external means
+- Collect access data for both entities
+- Call key generation API on each entity
+- Distribute semi-public keys cross-wise
+- Record binding in private blockchain
 
-#### 1.2 Inter-Device Key Exchange
-- **CAN Bus Communication**: Exchange device key halves over CAN bus
-- **Key Combination**: Implement algorithm to combine key halves into full encryption key
-- **Key Validation**: Verify combined key integrity and format
-- **Encryption Setup**: Initialize encryption/decryption using combined key
+#### 1.2 Key Architecture
+**Semi-Public Keys:**
+- Generated per binding relationship
+- Shared only with auth controller and bound partner
+- Used for high-value validation events
+- Never exposed publicly
 
-#### 1.3 API-Bridge Integration
-- **Component Registration**: Implement calls to POST /api/v1/components/register
-- **LCT Creation**: Implement calls to POST /api/v1/lct/create
-- **Key Extraction**: Parse device_key_half and lct_key_half from API responses
-- **Error Handling**: Handle API failures and retry logic
+**Access Data Storage:**
+- Store partner's complete access data:
+  - Endpoint (URL, CAN address, etc.)
+  - Protocol type (CAN, HTTP, MQTT)
+  - Device ID
+  - Bound LCT information (if applicable)
 
-### Phase 2: Encrypted CAN Communication
+#### 1.3 Binding Record Management
+```json
+{
+  "binding_id": "uuid",
+  "entity_a": {
+    "access_data": {...},
+    "semi_public_key": "base64_key",
+    "bound_lct": {...}
+  },
+  "entity_b": {
+    "access_data": {...},
+    "semi_public_key": "base64_key",
+    "bound_lct": {...}
+  },
+  "timestamp": "utc_timestamp",
+  "authority": "controller_signature"
+}
+```
 
-#### 2.1 Device-to-Device Encryption (Pack Controller ↔ Battery Module)
-- **Encryption Layer**: Implement message encryption/decryption over CAN bus
-- **Message Format**: Define encrypted CAN frame structure
-- **Error Handling**: Implement decryption failure recovery
-- **Performance**: Optimize for real-time CAN communication requirements
+### Phase 2: Pairing Transaction Implementation
 
-#### 2.2 Message Types and Protocols
-- **Operational Data**: Battery status, charging commands, telemetry
-- **Security Messages**: Key rotation, authentication challenges
-- **Diagnostic Data**: Error codes, system health monitoring
+#### 2.1 Pairing Certificate Generation
+**Auth Controller Tasks:**
+- Generate 64-byte symmetric key for pairing
+- Split into two 32-byte halves
+- Generate exchange key for key half sharing
+- Create clear metadata with:
+  - Entity access data
+  - Timing restrictions
+  - Encryption policy (critical vs routine)
+  - Context and restrictions
 
-### Phase 3: Encryption Implementation
+#### 2.2 Certificate Structure Implementation
+**Three Encrypted Sections:**
+1. **Entity A Section** (encrypted with A's semi-public key):
+   - A's half of symmetric key
+   - SHA256 hash of clear metadata
+   - Exchange key
 
-#### 3.1 Core Cryptographic Components
-- **HKDF Key Derivation**: Implement HKDF-SHA256 for combining device key halves
-- **AES-256-GCM Encryption**: Implement authenticated encryption for CAN messages
-- **Key Combination Algorithm**: Deterministic method to combine 64-byte key halves
-- **IV/Nonce Management**: Counter-based nonce generation for GCM mode
+2. **Entity B Section** (encrypted with B's semi-public key):
+   - B's half of symmetric key
+   - SHA256 hash of clear metadata
+   - Exchange key
 
-#### 3.2 CAN Message Format
-- **Encryption Flag**: Use bit 17 in CAN ID to signal encrypted payload
-- **Message Structure**: IV(12) + Encrypted_Data + Auth_Tag(16) format
-- **Frame Handling**: Integrate encryption with existing CAN communication stack
-- **Error Recovery**: Handle encryption/decryption failures gracefully
+3. **Handshake Validation Section** (encrypted with full pairing key):
+   - Validation nonce
+   - Auth controller callback endpoint
+   - Completion instructions
 
-#### 3.3 Key Distribution Protocol
-- **App-Generated Components**: Salt values, IV seeds, crypto parameters
-- **Key Package Format**: Structured data containing all crypto material
-- **Secure Transfer**: Initial unencrypted transfer followed by encrypted communication
-- **Validation**: Cryptographic verification of received key packages
+#### 2.3 Key Exchange Protocol
+**Entity-to-Entity Exchange:**
+- Use exchange key to share key halves
+- Combine halves to reconstruct pairing key
+- Decrypt handshake validation section
+- Send completion proof to auth controller
 
-### Phase 4: Security and Validation
+**Completion Validation:**
+```json
+{
+  "pairing_id": "from_certificate",
+  "validation_nonce": "from_handshake_section",
+  "entity_signatures": {
+    "entity_a": "binding_key_signature",
+    "entity_b": "binding_key_signature"
+  }
+}
+```
 
-#### 4.1 Security Hardening
-- **Key Storage**: Implement secure key storage on devices
-- **Memory Protection**: Ensure keys are cleared from memory when not needed
-- **Tamper Detection**: Implement mechanisms to detect key compromise
-- **Audit Logging**: Log all encryption/decryption events
+#### 2.4 Selective Encryption Implementation
+**Three-Tier Encryption:**
+1. **Binding Keys (Asymmetric)** - High-value events
+   - Validation transactions
+   - Certificate signing
+   - Identity verification
 
-#### 4.2 Testing and Validation
-- **Unit Tests**: Test encryption/decryption functions
-- **Integration Tests**: Test full communication flow
-- **Security Tests**: Attempt to break encryption or extract keys
-- **Performance Tests**: Validate real-time communication requirements
+2. **Pairing Key (Symmetric, 64 bytes)** - Medium-value events
+   - Command and control
+   - Configuration changes
+   - Critical telemetry
 
-## Implementation Decisions Required
+3. **Exchange Key (Symmetric, lightweight)** - Low-value encrypted events
+   - Routine telemetry
+   - Status updates
+   - Non-critical logs
 
-### Cryptographic Decisions (Based on Encryption Proposal)
-1. **Key Derivation**: HKDF-SHA256 with app-generated salt values ✓
-2. **Encryption Algorithm**: AES-256-GCM for authenticated encryption ✓
-3. **Key Combination**: Concatenate key halves + salt, then HKDF ✓
-4. **Message Format**: IV(12) + Encrypted_Data + Auth_Tag(16) ✓
-5. **Nonce Management**: Counter-based with device-specific base ✓
+### Phase 3: Validation Hierarchy Implementation
 
-### Implementation Decisions
-1. **Host ID Generation**: MAC address, CPU ID, or generated UUID?
-2. **Key Storage Format**: Flash memory layout and protection mechanisms
-3. **Performance Optimization**: Hardware acceleration and library selection
-4. **Error Handling**: Fallback modes and recovery procedures
+#### 3.1 Validation Event Processing
+**Level 1: Announce**
+- Implement public broadcast mechanism
+- Sign with binding private key
+- Include access data and bound LCT info
 
-### Operational Decisions
-1. **Key Rotation Schedule**: How often to regenerate device key halves?
-2. **Diagnostic Access**: Maintain unencrypted diagnostic channels?
-3. **Update Mechanism**: How to update crypto parameters over CAN?
-4. **Monitoring**: What crypto events to log for security auditing?
+**Level 2: Witness**
+- Request witness acknowledgment
+- Collect witness signature
+- Record witnessed event
 
-## Priority Implementation Order
+**Level 3: Signed Handshake**
+- Exchange signatures without pairing
+- Generate ephemeral session key
+- Limited duration or single-use
 
-1. **High Priority**: API-Bridge integration and key storage
-2. **High Priority**: HKDF key derivation and AES-256-GCM implementation
-3. **High Priority**: CAN message encryption with bit 17 signaling
-4. **Medium Priority**: Key distribution protocol and validation
-5. **Medium Priority**: Error handling and recovery mechanisms
-6. **Low Priority**: Key rotation and advanced security features
+**Level 4: Paired Handshake**
+- Use existing pairing key
+- Challenge-response authentication
+- Session re-establishment
+
+**Level 5: Paired Command/Control**
+- Encrypt with pairing key
+- Sign with binding key
+- Require acknowledgment
+
+**Level 6: Pairing Validation**
+- Involve auth controller
+- Multi-party signatures
+- Completion/revocation events
+
+**Level 7: Binding Validation**
+- Maximum security with LCT involvement
+- Blockchain proof
+- Permanent record
+
+#### 3.2 Escalation Mechanism
+```json
+"escalation_request": {
+  "target_level": 5,
+  "reason": "anomaly_detected",
+  "urgency": "immediate"
+}
+```
+- Monitor for escalation requests
+- Dynamically adjust security level
+- Log escalation events
+
+### Phase 4: CAN Bus Integration
+
+#### 4.1 CAN Message Encryption
+**Message Format with Encryption Levels:**
+- Bit 17: General encryption flag
+- Bits 18-19: Encryption level (00=none, 01=exchange, 10=pairing, 11=binding)
+- Payload structure based on level
+
+#### 4.2 Protocol-Specific Implementation
+**Pack Controller ↔ Battery Module:**
+- Binding establishment at manufacturing
+- Pairing for operational contexts
+- Validation events for state changes
+
+**Critical Operations (Pairing Key):**
+- Charge/discharge commands
+- Safety limits configuration
+- Firmware updates
+
+**Routine Monitoring (Exchange Key or Clear):**
+- Voltage/current telemetry
+- Temperature readings
+- Status heartbeats
+
+### Phase 5: Security and Testing
+
+#### 5.1 Security Implementation
+**Key Storage:**
+- Secure flash regions for private keys
+- Memory protection for runtime keys
+- Key derivation using HKDF-SHA256
+
+**Cryptographic Libraries:**
+- AES-256-GCM for symmetric encryption
+- RSA-2048 or ECC-P256 for asymmetric
+- SHA-256 for hashing
+
+#### 5.2 Testing Requirements
+**Unit Tests:**
+- Binding transaction flow
+- Pairing certificate generation/validation
+- All 7 validation levels
+- Escalation mechanism
+
+**Integration Tests:**
+- Full binding-pairing-validation flow
+- CAN bus encrypted communication
+- Multi-device pairing scenarios
+
+**Security Tests:**
+- Attempt key extraction
+- Replay attack prevention
+- Man-in-the-middle resistance
+
+## Implementation Priorities
+
+### Immediate (Phase 1)
+1. Binding API endpoints
+2. Semi-public key generation
+3. Access data management
+4. Basic validation events (Level 1-3)
+
+### Short-term (Phase 2)
+1. Pairing certificate generation
+2. Key exchange protocol
+3. Handshake validation
+4. Mid-level validation (Level 4-5)
+
+### Medium-term (Phase 3)
+1. Full validation hierarchy
+2. Escalation mechanism
+3. CAN bus integration
+4. High-level validation (Level 6-7)
 
 ## Success Criteria
 
-- [ ] App successfully registers as blockchain component with Host ID
-- [ ] Pack controller and battery modules register and receive device key halves
-- [ ] HKDF key derivation produces consistent encryption keys from key halves
-- [ ] AES-256-GCM encryption/decryption works on CAN messages
-- [ ] Bit 17 encryption signaling functions correctly in CAN frames
-- [ ] All device pairs establish encrypted communication channels
-- [ ] System meets real-time performance requirements with encryption overhead
-- [ ] Security validation passes with no key material exposure
+- [ ] Binding transactions create permanent device-LCT relationships
+- [ ] Pairing certificates enable context-specific trust
+- [ ] All 7 validation levels function correctly
+- [ ] Escalation mechanism responds to security events
+- [ ] Access data enables dynamic device discovery
+- [ ] Three-tier encryption balances security and performance
+- [ ] Zero-knowledge property maintained for auth controller
+- [ ] Complete audit trail for all transactions
 
 ## Risk Mitigation
 
-- **Key Loss**: Implement key backup and recovery procedures
-- **Communication Failure**: Design robust retry and fallback mechanisms
-- **Performance Impact**: Profile encryption overhead on embedded systems
-- **Security Vulnerabilities**: Regular security audits and penetration testing
+### Technical Risks
+- **Key Loss**: Implement secure backup mechanisms
+- **Performance Impact**: Profile encryption overhead, use selective encryption
+- **Protocol Complexity**: Phased implementation with thorough testing
+
+### Security Risks
+- **Key Exposure**: Hardware security modules for critical keys
+- **Replay Attacks**: Nonces and sequence numbers in all protocols
+- **Escalation Abuse**: Rate limiting and authentication for escalations
+
+### Operational Risks
+- **Device Replacement**: Clear revocation and re-binding procedures
+- **Network Partitions**: Local validation with eventual consistency
+- **Audit Requirements**: Comprehensive logging at appropriate levels
+
+## Next Immediate Steps
+
+1. **Implement Binding API** on test device
+2. **Create Auth Controller** binding orchestration
+3. **Test Semi-Public Key** exchange flow
+4. **Implement Level 1-2** validation events
+5. **Document CAN Frame** formats for each encryption level
+6. **Build Test Harness** for protocol validation

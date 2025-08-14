@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document outlines the complete communication workflow in the Modbatt system, including the pack controller's role as a dual-CAN gateway between the Modbatt app and battery modules.
+This document outlines the complete communication workflow in the Modbatt system using the three-tier transaction protocol: Binding, Pairing, and Validation.
 
 ## System Architecture
 
@@ -12,269 +12,320 @@ Modbatt App ←→ USB-CAN Adapter ←→ Pack Controller ←→ Battery Module(
                                     (CAN 1)         (CAN 2)
 ```
 
-### Communication Flow
+### Logical Protocol Layers
 ```
-Battery Module → Pack Controller → Modbatt App → API-Bridge → Blockchain
+Binding Layer (Permanent Identity) → Pairing Layer (Context Trust) → Validation Layer (Event Attestation)
 ```
 
 ### Pack Controller Role
 The pack controller acts as a **CAN bridge/gateway** with:
 - **CAN Interface 1**: Communicates with Modbatt app (via USB-CAN adapter)
 - **CAN Interface 2**: Communicates with battery modules
-- **Bridge Function**: Routes messages between the two CAN networks
+- **Bridge Function**: Routes messages between networks with protocol translation
+- **Security Gateway**: Manages different encryption levels per context
 
 ## CAN Message Encryption Signaling
 
-### CAN ID Structure (29-bit)
-- **Bit 17 (MSB of 18-bit extended ID)**: Encryption flag
-  - `0` = Unencrypted payload
-  - `1` = Encrypted payload
-- **Remaining CAN ID**: Contains controller/module ID (always unencrypted)
+### Extended CAN ID Structure (29-bit)
+- **Bit 17**: General encryption flag (0 = clear, 1 = encrypted)
+- **Bits 18-19**: Encryption level when Bit 17 = 1
+  - `00` = Exchange key (lightweight symmetric)
+  - `01` = Pairing key (64-byte symmetric)
+  - `10` = Binding key (asymmetric)
+  - `11` = Reserved for future use
+- **Remaining bits**: Device/message identifiers (always unencrypted)
 
-### Security Zones
-- **CAN 1** (App ↔ Pack Controller): Initially unencrypted, then LCT encrypted
-- **CAN 2** (Pack Controller ↔ Battery Modules): Initially unencrypted, then device-pairing encrypted
+### Encryption Hierarchy
+1. **Binding Keys** (Asymmetric) - Validation events, identity verification
+2. **Pairing Keys** (Symmetric 64-byte) - Command/control, configuration
+3. **Exchange Keys** (Lightweight) - Routine telemetry, status updates
+4. **Clear** - Public announcements, discovery
 
 ## System Initial State
 
-### Pack Controller Factory Default State
-- **Flash Memory**: Empty - no cryptographic keys stored
-- **CAN Communication**: Unencrypted on both interfaces (encryption bit = 0)
-- **Registration Status**: Unknown/unregistered with blockchain
-- **Device Identity**: Hardware serial number or unique identifier only
+### Factory Default State
+**Pack Controller:**
+- No cryptographic keys stored
+- No blockchain registration
+- Hardware serial number only
+- CAN communication unencrypted
 
-### Modbatt App Initial State
-- **Host ID Generation**: Create unique identifier for the computer running the app
-  - Options: MAC address, CPU ID, motherboard serial, or generated UUID
-  - Store persistently for consistent identity across app restarts
-- **Registration Status**: Unregistered as blockchain component
-- **Key Storage**: No keys initially stored
+**Battery Module:**
+- No cryptographic keys stored
+- Module serial number only
+- Awaiting binding transaction
 
-## Bootstrap Workflow
+**Modbatt App:**
+- Host ID generated (MAC address, CPU ID, or UUID)
+- No blockchain registration initially
+- No keys stored
 
-### Phase 1: Initial Discovery and Registration Check
+## Phase 1: Binding Transactions
 
-#### 1.1 Device Discovery
+### 1.1 Device Discovery
 ```
-Modbatt App → Pack Controller (CAN 1, Unencrypted, Bit 17 = 0)
-├── Query: Device ID/Serial Number
-├── Query: Current registration status
-├── Query: Hardware capabilities
-└── Response: Device information
-```
-
-#### 1.2 Blockchain Registration Check
-```
-Modbatt App → API-Bridge → Blockchain
-├── POST /api/v1/components/register (if unregistered)
-├── Response: component_id, lct_id, component_identity
-└── Store registration details for pack controller
+Modbatt App → Pack Controller (CAN 1, Unencrypted)
+├── Announce (Level 1 Validation)
+├── Query: Device serial number
+├── Query: Binding status
+└── Response: Device information + access data
 ```
 
-### Phase 2: Initial Key Generation and Bootstrap
+### 1.2 Binding Establishment
 
-#### 2.1 Component Registration Process
-When pack controller is **unregistered**:
+**Step 1: Authority Validation**
+Auth controller (API-Bridge) validates binding authority through external means
 
-```
-1. Modbatt App → API-Bridge: POST /api/v1/components/register
-   ├── Request: creator, component_data, context
-   └── Response: component_id, lct_id, component_identity
-
-2. Modbatt App → API-Bridge: POST /api/v1/lct/create  
-   ├── Request: creator, component_a, component_b, context
-   └── Response: lct_id, device_key_half, lct_key_half, status
-```
-
-#### 2.2 Key Generation and Distribution
-
-**Step 1: Register App as Component**
-```
-Modbatt App → API-Bridge: POST /api/v1/components/register
-├── Request: creator, component_data (host_id), context
-└── Response: app_component_id, app_lct_id, component_identity
+**Step 2: Access Data Collection**
+```json
+{
+  "pack_controller": {
+    "device_id": "PC-12345",
+    "protocol": "can",
+    "can_interface": 1,
+    "endpoint": "0x100"  // CAN base address
+  },
+  "app": {
+    "host_id": "APP-HOST-67890",
+    "protocol": "http",
+    "endpoint": "http://localhost:8080/api"
+  }
+}
 ```
 
-**Step 2: Create LCT Relationship (App ↔ Pack Controller)**
+**Step 3: Key Generation**
 ```
-Modbatt App → API-Bridge: POST /api/v1/lct/create
-├── Request: creator, component_a (app_component_id), component_b (pack_controller_id), context
-└── Response: lct_id, device_key_half, lct_key_half
-```
+Auth Controller → Pack Controller: POST /api/binding/generate-keys
+├── Request: App's access data
+└── Response: Pack controller's semi-public key
 
-**API-Bridge/Blockchain Generates:**
-- **App's Device Key Half** (64 bytes) - for app ↔ pack controller communication
-- **App's LCT Key Half** (64 bytes) - for Web4 operations
-- **Pack Controller's Device Key Half** (64 bytes) - for pack controller ↔ app communication  
-- **Pack Controller's LCT Key Half** (64 bytes) - for Web4 operations
-- **LCT Relationship ID** - links app and pack controller on blockchain
-
-#### 2.3 Initial Key Distribution
-```
-Modbatt App → Pack Controller (CAN 1, Unencrypted, Bit 17 = 0)
-├── Pack Controller's Device Key Half (64 bytes from API-Bridge)
-├── Pack Controller's LCT Key Half (64 bytes from API-Bridge)
-├── App's Device Key Half (64 bytes for secure CAN communication)
-├── Device Certificate/ID (pack_controller_component_id from blockchain)
-└── Configuration parameters
+Auth Controller → App: POST /api/binding/generate-keys
+├── Request: Pack controller's access data
+└── Response: App's semi-public key
 ```
 
-#### 2.4 Key Storage
-**Modbatt App Local Storage:**
+**Step 4: Semi-Public Key Distribution**
 ```
-├── App's Device Key Half (64 bytes)       (for secure CAN communication)
-├── App's LCT Key Half (64 bytes)          (for Web4 operations)
-├── App Component ID                       (from blockchain registration)
-└── Host ID                               (unique computer identifier)
+Auth Controller → Pack Controller: App's semi-public key
+Auth Controller → App: Pack controller's semi-public key
+Both store: Partner's access data + semi-public key
 ```
 
-**Pack Controller Flash Storage:**
-```
-├── Pack Controller's Device Key Half (64 bytes)  (for secure CAN communication)
-├── Pack Controller's LCT Key Half (64 bytes)     (for Web4 operations)
-├── App's Device Key Half (64 bytes)              (for communication with app)
-├── Pack Controller Component ID                  (from blockchain registration)
-└── Device Configuration                          (operational parameters)
-```
-
-### Phase 3: Encrypted Communication Establishment
-
-#### 3.1 Communication Channel Upgrade
-After bootstrap keys are stored:
-```
-All Future Communications:
-Modbatt App ←→ Pack Controller (CAN 1, Encrypted, Bit 17 = 1)
-├── App combines: App's Device Key Half + Pack Controller's Device Key Half → Shared Key
-├── Pack Controller combines: Pack Controller's Device Key Half + App's Device Key Half → Shared Key  
-├── Both use identical Shared Key for symmetric encryption/decryption
-└── Secure bidirectional communication established
+**Step 5: Binding Validation** (Level 7)
+```json
+{
+  "type": "binding_validation",
+  "binding_id": "uuid",
+  "validation_type": "establishment",
+  "entities": ["pack_controller", "app"],
+  "blockchain_proof": "tx_hash"
+}
 ```
 
-**Key Combination Process:**
-1. Each side has both device key halves (64 bytes each)
-2. Combine halves using deterministic algorithm (e.g., XOR, concatenation, or cryptographic function)
-3. Resulting combined key used for symmetric encryption (AES, ChaCha20, etc.)
-4. Both sides can encrypt/decrypt messages using the same derived key
+### 1.3 Module Binding
+Similar process for Pack Controller ↔ Battery Module binding
 
-## Operational Workflows
+## Phase 2: Pairing Transactions
 
-### Workflow A: Device Pairing Operations
+### 2.1 Operational Context Pairing
 
-#### A.1 Battery Module Pairing Request
-```
-1. Modbatt App → API-Bridge: POST /api/v1/lct/create
-   ├── Request: creator, component_a (pack controller), component_b (battery module), context
-   └── Response: lct_id, device_key_half, lct_key_half
+**Context Examples:**
+- `battery_management`: Normal charge/discharge operations
+- `diagnostics`: Troubleshooting and monitoring
+- `firmware_update`: Software updates
+- `emergency`: Safety-critical operations
 
-2. App → Pack Controller: Deliver pairing keys (CAN 1, Encrypted, Bit 17 = 1)
-   ├── Device Key Half (64 bytes for pack controller ↔ battery module communication)
-   ├── LCT Key Half (64 bytes for operational use)
-   └── Battery Module component_id
+### 2.2 Pairing Certificate Generation
 
-3. Pack Controller: Store pairing keys in flash
-```
-
-#### A.2 Inter-Device Key Exchange
-```
-1. App creates separate LCT for battery module:
-   ├── POST /api/v1/lct/create (for battery module)
-   └── Receives: device_key_half, lct_key_half for battery module
-
-2. Pack Controller → Battery Module: Exchange device key halves (CAN 2, Unencrypted, Bit 17 = 0)
-   ├── Send pack controller's device key half
-   └── Receive battery module's device key half
-
-3. Both devices: Combine device key halves to form shared encryption key
-4. Establish: Ongoing encrypted device-device communication (CAN 2, Encrypted, Bit 17 = 1)
-```
-
-### Workflow B: Configuration and Monitoring
-
-#### B.1 Configuration Updates
-```
-Modbatt App → Pack Controller (CAN 1, Encrypted, Bit 17 = 1)
-├── Operational parameters
-├── Firmware updates
-├── Security policy updates
-└── Diagnostic commands
-```
-
-#### B.2 Status Monitoring
-```
-Pack Controller → Modbatt App (CAN 1, Encrypted, Bit 17 = 1)
-├── Battery status data (bridged from CAN 2)
-├── System health metrics
-├── Error codes and alerts
-└── Pairing status updates
+**Auth Controller creates certificate with:**
+```json
+{
+  "pairing_certificate": {
+    "clear_metadata": {
+      "pairing_id": "uuid",
+      "context": "battery_management",
+      "entities": [
+        {
+          "entity_id": "pack_controller",
+          "access_data": {...}
+        },
+        {
+          "entity_id": "battery_module_1",
+          "access_data": {...}
+        }
+      ],
+      "timing": {
+        "expires_at": "2024-12-31T23:59:59Z"
+      },
+      "encryption_policy": {
+        "critical_required": ["command", "control"],
+        "unencrypted_allowed": ["status", "telemetry"]
+      }
+    },
+    "encrypted_sections": {
+      "pack_controller": "encrypted_with_pc_semi_public_key",
+      "battery_module": "encrypted_with_bm_semi_public_key",
+      "handshake_validation": "encrypted_with_full_pairing_key"
+    }
+  }
+}
 ```
 
-#### B.3 Battery Module Communication
-```
-Pack Controller ←→ Battery Module(s) (CAN 2, Encrypted, Bit 17 = 1)
-├── Battery telemetry data
-├── Charging commands
-├── Safety alerts
-└── Diagnostic information
-```
+### 2.3 Key Exchange and Handshake
 
-### Workflow C: Re-registration and Recovery
-
-#### C.1 Key Recovery Scenario
-If pack controller loses keys (flash corruption, factory reset):
+**Step 1: Certificate Distribution**
 ```
-1. Pack Controller: Revert to unencrypted communication
-2. Modbatt App: Detect missing keys during communication attempt
-3. App: Query blockchain for existing registration
-4. If registered: Re-download and redistribute LCT keys
-5. If corrupted: Initiate re-registration process
+App → Pack Controller (CAN 1, Binding key encrypted, Bits 17=1, 18-19=10)
+├── Pairing certificate
+└── Acknowledgment required
 ```
 
-## Security Considerations
+**Step 2: Key Half Exchange**
+```
+Pack Controller ↔ Battery Module (CAN 2, Exchange key)
+├── Exchange key halves using exchange key from certificate
+├── Reconstruct full pairing key
+└── Decrypt handshake validation section
+```
 
-### Bootstrap Security
-- **Initial vulnerability**: First key distribution is unencrypted
-- **Mitigation**: Physical security during initial setup
-- **Verification**: Cryptographic verification of received keys
+**Step 3: Handshake Completion** (Level 6 Validation)
+```
+Pack Controller + Battery Module → Auth Controller
+├── Pairing ID
+├── Validation nonce (from handshake section)
+├── Both entity signatures
+└── Completion timestamp
+```
 
-### Ongoing Security
-- **All communications encrypted** after bootstrap
-- **Key isolation**: LCT keys separate from device pairing keys
-- **Tamper detection**: Monitor for key corruption or unauthorized access
+## Phase 3: Operational Communication
 
-### Flash Storage Security
-- **Secure storage**: Use hardware security features if available
-- **Key validation**: Verify key integrity on startup
-- **Backup procedures**: Secure key recovery mechanisms
+### 3.1 Message Classification and Encryption
 
-## Implementation States
+**Critical Operations** (Pairing Key Required):
+```
+Pack Controller ↔ Battery Module (CAN 2, Bits 17=1, 18-19=01)
+├── Charge/discharge commands
+├── Safety limit configuration
+├── Cell balancing commands
+└── Emergency shutdown
+```
+
+**Routine Monitoring** (Exchange Key or Clear):
+```
+Battery Module → Pack Controller (CAN 2, Bits 17=1, 18-19=00 or 17=0)
+├── Voltage readings (every 100ms)
+├── Temperature data (every 500ms)
+├── Current measurements (every 100ms)
+└── Status heartbeat (every 1000ms)
+```
+
+**Validation Events** (Binding Key):
+```
+Any Entity → Network (Bits 17=1, 18-19=10)
+├── State change announcements
+├── Anomaly detection alerts
+├── Audit trail entries
+└── Escalation requests
+```
+
+### 3.2 Validation Hierarchy in Operation
+
+**Level 1: Announce** - Battery module broadcasts availability
+**Level 2: Witness** - Pack controller witnesses module state change
+**Level 3: Signed Handshake** - Initial contact without pairing
+**Level 4: Paired Handshake** - Session re-establishment
+**Level 5: Paired Command** - Operational commands
+**Level 6: Pairing Validation** - Auth controller involved
+**Level 7: Binding Validation** - Identity verification
+
+### 3.3 Escalation Example
+```
+Normal telemetry (Level 1) → Anomaly detected → 
+Escalation request (target_level: 5) → 
+Paired command for diagnostic mode → 
+Further anomaly → Escalation (target_level: 7) → 
+Full binding validation with auth controller
+```
+
+## Security State Machine
 
 ### Pack Controller States
 ```
-State 1: Factory Default (No keys, CAN 1 & 2 unencrypted, Bit 17 = 0)
-    ↓
-State 2: Bootstrap Complete (LCT keys stored, CAN 1 encrypted, Bit 17 = 1)
-    ↓
-State 3: Paired (Device pairing keys available, CAN 2 encrypted, Bit 17 = 1)
-    ↓
-State 4: Operational (Full encrypted dual-CAN communication)
+State 0: Factory Default
+    ↓ [Binding Transaction]
+State 1: Bound (Semi-public keys established)
+    ↓ [Pairing Transaction]
+State 2: Paired (Context-specific keys active)
+    ↓ [Operational]
+State 3: Active (All encryption levels available)
+    ↓ [Validation Events]
+State 4: Validated (Continuous attestation)
 ```
 
 ### Communication Security Levels
-- **Level 0**: Unencrypted (bootstrap only, Bit 17 = 0)
-- **Level 1**: CAN 1 encrypted (app ↔ pack controller, Bit 17 = 1)
-- **Level 2**: CAN 2 encrypted (pack controller ↔ battery modules, Bit 17 = 1)
-- **Level 3**: Full encrypted (both CAN networks secured, Bit 17 = 1)
+```
+Level 0: Discovery (No encryption, public announce)
+Level 1: Exchange (Lightweight symmetric, routine data)
+Level 2: Paired (64-byte symmetric, commands)
+Level 3: Bound (Asymmetric, validation events)
+```
 
 ## Error Handling and Recovery
 
-### Common Failure Scenarios
-1. **Key corruption**: Re-download from blockchain
-2. **Registration failure**: Retry with exponential backoff
-3. **Communication failure**: Fallback to lower security level temporarily
-4. **Pairing failure**: Reset pairing state and retry
+### Key Loss Recovery
+1. Device announces key loss (Level 1 validation)
+2. Escalation to binding validation (Level 7)
+3. Auth controller initiates re-binding
+4. New semi-public keys generated
+5. Existing pairings invalidated
+6. Re-pairing required for operational contexts
 
-### Diagnostic Procedures
-- **Key validation**: Verify all stored keys on startup
-- **Communication test**: Validate encrypted channels
-- **Blockchain sync**: Verify registration status periodically
-- **Security audit**: Log all key operations for audit trail
+### Pairing Expiration
+1. Monitor pairing certificate expiration
+2. Request new pairing before expiration
+3. Seamless key transition using new certificate
+4. Old pairing keys securely deleted
+
+### Anomaly Response
+1. Detect anomalous behavior
+2. Generate escalation request
+3. Increase validation level dynamically
+4. Log all escalation events
+5. Potential pairing revocation if severe
+
+## Implementation Checkpoints
+
+### Binding Implementation
+- [ ] `/api/binding/generate-keys` endpoint on all devices
+- [ ] Semi-public key generation and storage
+- [ ] Access data management
+- [ ] Binding validation (Level 7) support
+
+### Pairing Implementation
+- [ ] Certificate parsing and validation
+- [ ] Three-section decryption logic
+- [ ] Key half exchange protocol
+- [ ] Handshake completion validation
+
+### Validation Implementation
+- [ ] All 7 validation levels
+- [ ] Escalation request handling
+- [ ] Signature generation/verification
+- [ ] Audit trail logging
+
+### CAN Integration
+- [ ] Extended ID encryption signaling
+- [ ] Multi-level encryption support
+- [ ] Protocol-aware message routing
+- [ ] Performance optimization
+
+## Security Audit Checklist
+
+- [ ] No private keys ever transmitted
+- [ ] Semi-public keys only to authorized parties
+- [ ] Pairing keys require both halves
+- [ ] Auth controller maintains zero-knowledge
+- [ ] All validation events logged
+- [ ] Escalation mechanism tested
+- [ ] Key storage secured
+- [ ] Communication patterns analyzed
