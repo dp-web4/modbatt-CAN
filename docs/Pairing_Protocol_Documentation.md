@@ -312,18 +312,293 @@ This tiered approach allows resource-constrained devices to apply appropriate se
 - Selective encryption balances security with performance
 
 ### 3. Validation Transactions
-**Purpose**: Provide contextualized confirmation of events, transactions, or provenance.
+**Purpose**: Provide contextualized confirmation of events, transactions, or provenance with varying levels of trust and computational cost.
 
 **Characteristics**:
-- Acts as witness or attestation
-- Creates audit trail
+- Contextual in terms of value, time, audience, and degree of trust
+- Creates audit trail with appropriate security level
 - Can be chained for multi-party validation
-- Provides non-repudiation
+- Provides graduated non-repudiation
 
-**Implementation**:
+**Validation Event Hierarchy** (lowest to highest trust/cost):
+
+**Escalation**: Any validation event can request escalation to a higher level by including an `escalation_request` field. This allows dynamic security adjustment based on detected threats or anomalies.
+
+```json
+"escalation_request": {
+  "target_level": 5,
+  "reason": "anomaly_detected|security_threat|audit_required",
+  "urgency": "immediate|deferred"
+}
 ```
-VALIDATE(event_id, validator_lct_id, context, signature) → validation_receipt
+
+#### Level 1: Announce (Public FYI)
+- **Trust Level**: Minimal - self-attestation only
+- **Encryption**: None (public broadcast)
+- **Signature**: Entity's binding private key
+- **Audience**: World/any listener
+- **Use Cases**: Status broadcasts, availability announcements, public telemetry
+- **Implementation**:
+```json
+{
+  "type": "announce",
+  "entity_id": "broadcaster_id",
+  "access_data": {
+    "endpoint": "device_url_or_address",
+    "protocol": "can|http|mqtt",
+    "device_id": "unique_device_identifier"
+  },
+  "bound_lct": {
+    "lct_id": "blockchain_lct_id",
+    "chain_id": "blockchain_identifier",
+    "rpc_endpoint": "blockchain_rpc_url"
+  },
+  "message": "clear_text_announcement",
+  "timestamp": "utc_timestamp",
+  "signature": "binding_key_signature",
+  "escalation_request": {}  // Optional
+}
 ```
+
+#### Level 2: Witness (Acknowledged Attestation)
+- **Trust Level**: Low - third-party acknowledgment
+- **Encryption**: Optional
+- **Signature**: Both entity and witness binding keys
+- **Audience**: Specific witnesses + interested parties
+- **Use Cases**: Event logging, transaction recording, state changes
+- **Implementation**:
+```json
+{
+  "type": "witness",
+  "entity": {
+    "entity_id": "originator_id",
+    "access_data": {
+      "endpoint": "device_url_or_address",
+      "protocol": "can|http|mqtt",
+      "device_id": "unique_device_identifier"
+    },
+    "bound_lct": {
+      "lct_id": "blockchain_lct_id",
+      "chain_id": "blockchain_identifier"
+    }
+  },
+  "witness": {
+    "witness_id": "witness_entity_id",
+    "access_data": {
+      "endpoint": "witness_url_or_address",
+      "protocol": "can|http|mqtt",
+      "device_id": "witness_device_id"
+    },
+    "bound_lct": {
+      "lct_id": "witness_lct_id",
+      "chain_id": "blockchain_identifier"
+    }
+  },
+  "event": "event_description",
+  "timestamp": "utc_timestamp",
+  "entity_signature": "originator_binding_signature",
+  "witness_signature": "witness_binding_signature",
+  "witness_timestamp": "witness_utc_timestamp",
+  "escalation_request": {}  // Optional
+}
+```
+
+#### Level 3: Signed Handshake (No Pairing)
+- **Trust Level**: Medium - mutual signature exchange
+- **Encryption**: Exchange key or temporary session key
+- **Signature**: Both entities' binding keys
+- **Audience**: Participating entities only
+- **Use Cases**: One-time transactions, temporary sessions, initial contact
+- **Implementation**:
+```json
+{
+  "type": "signed_handshake",
+  "initiator": {
+    "entity_id": "initiator_id",
+    "access_data": {
+      "endpoint": "initiator_address",
+      "protocol": "can|http|mqtt",
+      "device_id": "initiator_device_id"
+    },
+    "bound_lct": {
+      "lct_id": "initiator_lct_id",
+      "chain_id": "blockchain_identifier"
+    },
+    "nonce": "random_value",
+    "signature": "initiator_binding_signature"
+  },
+  "responder": {
+    "entity_id": "responder_id",
+    "access_data": {
+      "endpoint": "responder_address",
+      "protocol": "can|http|mqtt",
+      "device_id": "responder_device_id"
+    },
+    "bound_lct": {
+      "lct_id": "responder_lct_id",
+      "chain_id": "blockchain_identifier"
+    },
+    "nonce": "random_value",
+    "signature": "responder_binding_signature"
+  },
+  "session_key": "ephemeral_key_if_needed",
+  "validity": "timeout_or_single_use",
+  "escalation_request": {}  // Optional
+}
+```
+
+#### Level 4: Paired Handshake
+- **Trust Level**: Medium-High - uses established pairing
+- **Encryption**: Pairing key
+- **Signature**: Optional (pairing key provides authentication)
+- **Audience**: Paired entities only
+- **Use Cases**: Session establishment, periodic re-authentication, sync operations
+- **Implementation**:
+```json
+{
+  "type": "paired_handshake",
+  "pairing_id": "from_pairing_certificate",
+  "entities": [
+    {
+      "entity_id": "entity_a_id",
+      "access_data": {
+        "endpoint": "from_pairing_certificate",
+        "protocol": "can|http|mqtt",
+        "device_id": "device_a_id"
+      },
+      "bound_lct": {
+        "lct_id": "entity_a_lct_id",
+        "chain_id": "blockchain_identifier"
+      }
+    },
+    {
+      "entity_id": "entity_b_id",
+      "access_data": {
+        "endpoint": "from_pairing_certificate",
+        "protocol": "can|http|mqtt",
+        "device_id": "device_b_id"
+      },
+      "bound_lct": {
+        "lct_id": "entity_b_lct_id",
+        "chain_id": "blockchain_identifier"
+      }
+    }
+  ],
+  "sequence": "incrementing_counter",
+  "challenge": "random_challenge",
+  "response": "computed_response",
+  "encrypted_payload": "encrypted_with_pairing_key",
+  "escalation_request": {}  // Optional
+}
+```
+
+#### Level 5: Paired Command/Control
+- **Trust Level**: High - authorized operational commands
+- **Encryption**: Pairing key (required)
+- **Signature**: Command-specific signatures using binding keys
+- **Audience**: Paired entities in specific context
+- **Use Cases**: Configuration changes, operational commands, firmware updates
+- **Implementation**:
+```json
+{
+  "type": "paired_command",
+  "pairing_id": "from_pairing_certificate",
+  "commander": {
+    "entity_id": "commanding_entity_id",
+    "access_data": {
+      "endpoint": "commander_address",
+      "protocol": "can|http|mqtt",
+      "device_id": "commander_device_id"
+    },
+    "bound_lct": {
+      "lct_id": "commander_lct_id",
+      "chain_id": "blockchain_identifier"
+    }
+  },
+  "target": {
+    "entity_id": "target_entity_id",
+    "access_data": {
+      "endpoint": "target_address",
+      "protocol": "can|http|mqtt",
+      "device_id": "target_device_id"
+    },
+    "bound_lct": {
+      "lct_id": "target_lct_id",
+      "chain_id": "blockchain_identifier"
+    }
+  },
+  "command": "encrypted_command_payload",
+  "authorization": {
+    "context": "from_pairing_certificate",
+    "sequence": "command_sequence_number",
+    "signature": "binding_key_signature_of_command"
+  },
+  "acknowledgment_required": true,
+  "escalation_request": {}  // Optional
+}
+```
+
+#### Level 6: Pairing Validation (Auth Controller Involved)
+- **Trust Level**: Very High - involves trusted authority
+- **Encryption**: Multiple layers (pairing key + semi-public keys)
+- **Signature**: All parties using binding keys
+- **Audience**: Paired entities + auth controller
+- **Use Cases**: Pairing completion, revocation, critical state changes
+- **Implementation**:
+```json
+{
+  "type": "pairing_validation",
+  "pairing_id": "uuid",
+  "validation_type": "completion|revocation|modification",
+  "entities": ["entity_a_id", "entity_b_id"],
+  "auth_controller": {
+    "controller_id": "auth_controller_id",
+    "validation_nonce": "from_handshake_section",
+    "signature": "controller_binding_signature"
+  },
+  "entity_signatures": {
+    "entity_a": "signature_using_binding_key",
+    "entity_b": "signature_using_binding_key"
+  }
+}
+```
+
+#### Level 7: Binding Validation (Bound LCT Involved)
+- **Trust Level**: Maximum - involves permanent identity binding
+- **Encryption**: Asymmetric using binding keys
+- **Signature**: LCT and entity binding keys
+- **Audience**: Entity, bound LCT, and auth controller
+- **Use Cases**: Identity verification, binding establishment/revocation, critical security events
+- **Implementation**:
+```json
+{
+  "type": "binding_validation",
+  "binding_id": "uuid",
+  "validation_type": "establishment|verification|revocation",
+  "entity": {
+    "entity_id": "device_or_entity_id",
+    "access_data": {...},
+    "signature": "entity_binding_signature"
+  },
+  "lct": {
+    "lct_id": "blockchain_lct_id",
+    "chain_id": "blockchain_identifier",
+    "signature": "lct_binding_signature"
+  },
+  "auth_controller": {
+    "controller_id": "auth_controller_id",
+    "authority_proof": "external_authority_reference",
+    "signature": "controller_binding_signature"
+  },
+  "blockchain_proof": "transaction_hash_or_proof"
+}
+```
+
+**Security Properties**:
+- Each level provides appropriate security for its trust requirements
+- Higher levels can fall back to lower levels for non-critical operations
+- Computational cost scales with trust level and security requirements
+- All validations create auditable trail at appropriate storage level
 
 ## Protocol Architecture
 
