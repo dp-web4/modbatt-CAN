@@ -1,0 +1,8 @@
+
+
+basic flow - the LCT/device pairing is a dual-asymmetric key setup, LCT gets a private and 'public' key, as does the device.  except the 'public' keys are not made public, but only shared with the other party.  from there, device<>LCT messages are encrypted and decrypted with the relevant asymmetric keys.  the device-device pairing generates a pairing message (details of pairing permissions, device ids, etc).  and a symmetric key, which is used to encrypt the pairing message.  half of the key is encrypted by one device's LCT for the device, and then the other for the other.  the pairing authorization package then consists of:  1. pairing message, encrypted with symmetric key.  2.  half of symmetric key, encrypted for one device.  3. the other half of symmetric key, encrypted for the other device.  both device receive the full package.  each decrypts each half of the symmetric key, they share the halves, reconstruct the full key, and now they can both decrypt the pairing message.
+
+this way the auth controller knows the pairing message and symmetric key it generated, but not any of the device<>lct keys.  each LCT gets half of the symmetric key to encrypt for its device, but not the whole key.  the package contains two halves of the symmetric key, each only readable by the respective device, and a pairing message only readable with the whole symmetric key.
+
+
+the full key is used by the auth controller to encrypt the pairing message.  for now, just use placeholders for encryption/decryption, and focus on recording the events.

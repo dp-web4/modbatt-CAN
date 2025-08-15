@@ -1,0 +1,37 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<BorlandProject>
+	<Transactions>
+    <Transaction>2024/03/09 11:26:17.000.526,=D:\Dropbox\!Modbatt\Modbatt Configuration Tool\Include\can_frm_vcu.h</Transaction>
+    <Transaction>2024/03/09 11:26:17.000.532,=D:\Dropbox\!Modbatt\Modbatt Configuration Tool\Include\can_id_bms_vcu.h</Transaction>
+    <Transaction>2024/03/09 14:27:02.000.086,D:\Dropbox\!Modbatt\Modbatt Configuration Tool\PCANBasicExample.res=</Transaction>
+    <Transaction>2024/03/10 15:15:19.000.949,=D:\Dropbox\!Modbatt\Modbatt Configuration Tool\vcu.c</Transaction>
+    <Transaction>2024/03/10 15:22:41.000.837,D:\Dropbox\!Modbatt\Modbatt Configuration Tool\vcu.c=</Transaction>
+    <Transaction>2024/03/11 10:10:35.000.016,=D:\Dropbox\!Modbatt\Modbatt Configuration Tool\modbatt.res</Transaction>
+    <Transaction>2024/08/08 14:29:25.000.155,=D:\Dropbox\!Modbatt\Modbatt Configuration Tool\Include\bms.h</Transaction>
+    <Transaction>2025/06/23 08:50:22.000.172,=D:\Dropbox\!Modbatt\Modbatt Configuration Tool\WEB4.cpp</Transaction>
+    <Transaction>2025/06/27 10:37:50.000.261,=D:\Dropbox\!Modbatt\Modbatt Configuration Tool\WEB4.h</Transaction>
+    <Transaction>2025/06/30 14:17:08.000.374,D:\Dropbox\!Modbatt\Modbatt Configuration Tool\WEB4.cpp=</Transaction>
+    <Transaction>2025/06/30 14:17:16.000.058,D:\Dropbox\!Modbatt\Modbatt Configuration Tool\WEB4.h=</Transaction>
+    <Transaction>2025/06/30 14:17:42.000.785,=D:\Dropbox\!Modbatt\Modbatt Configuration Tool\File1.cpp</Transaction>
+    <Transaction>2025/06/30 14:19:11.000.774,=D:\Dropbox\!Modbatt\Modbatt Configuration Tool\File2.h</Transaction>
+    <Transaction>2025/06/30 14:36:55.000.340,D:\Dropbox\!Modbatt\Modbatt Configuration Tool\File1.cpp=</Transaction>
+    <Transaction>2025/06/30 14:37:04.000.128,D:\Dropbox\!Modbatt\Modbatt Configuration Tool\File2.h=</Transaction>
+    <Transaction>2025/06/30 14:37:23.000.108,=D:\Dropbox\!Modbatt\Modbatt Configuration Tool\WEB4.cpp</Transaction>
+    <Transaction>2025/06/30 14:37:23.000.151,=D:\Dropbox\!Modbatt\Modbatt Configuration Tool\WEB4.h</Transaction>
+  </Transactions>
+	<ProjectSortOrder AutoSort="0" SortType="0">
+    <File Path="Include"/>
+    <File Path="Include\bms.h"/>
+    <File Path="Include\can_frm_vcu.h"/>
+    <File Path="Include\can_id_bms_vcu.h"/>
+    <File Path="modbatt.cpp"/>
+    <File Path="modbatt.res"/>
+    <File Path="PCANBasicClass.cpp"/>
+    <File Path="Unit1.cpp"/>
+    <File Path="Unit1.cpp"/>
+    <File Path="Unit1.dfm"/>
+    <File Path="Unit1.h"/>
+    <File Path="WEB4.cpp"/>
+    <File Path="WEB4.h"/>
+  </ProjectSortOrder>
+</BorlandProject>
