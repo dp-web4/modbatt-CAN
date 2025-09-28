@@ -1,2 +1,44 @@
 Modbatt Configuration Tool/sync.ffs_db
 sync.ffs_db
+*.ffs_db
+
+# C++ Builder build directories
+Debug/
+Release/
+*/Debug/
+*/Release/
+
+# Keep release executables in specific directories
+!*/Release/*.exe
+!modbatt.exe
+!modbatt setup.exe
+
+# C++ Builder object files
+*.obj
+*.o
+
+# C++ Builder compiled units
+*.dcu
+*.pcu
+
+# Debugging files
+*.tds
+*.map
+*.#*
+
+# Temporary and backup files
+*.~*
+*~
+*.bak
+*.tmp
+
+# C++ Builder project local files
+*.local
+*.identcache
+*.projdata
+*.stat
+
+# OS specific files
+.DS_Store
+Thumbs.db
+desktop.ini
