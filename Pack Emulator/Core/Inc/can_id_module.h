@@ -1,32 +1,16 @@
-/***************************************************************************************************************
- * @file           : can_id_module.h
- * @brief          : Modbatt CAN packet identifiers for Pack Controller <-> Module Controller communication
+ /**************************************************************************************************************
+ * @file           : can_id_module.h                                              P A C K   C O N T R O L L E R
+ * @brief          : Modbatt CAN packet identifiers - Redirects to shared protocol definitions
  ***************************************************************************************************************
+ * Copyright (C) 2023-2024 Modular Battery Technologies, Inc.
+ * US Patents 11,380,942; 11,469,470; 11,575,270; others. All rights reserved
  *
- * Copyright (c) 2023 Modular Battery Technologies, Inc
- *
+ * This file now redirects to the shared CAN_ID_ALL.h for single source of truth
  **************************************************************************************************************/
 #ifndef INC_CAN_ID_MODULE_H_
 #define INC_CAN_ID_MODULE_H_
 
-// CAN Packet IDs
-// Module Controller to Pack Controller
-#define ID_MODULE_ANNOUNCEMENT     0x500
-#define ID_MODULE_HARDWARE         0x501
-#define ID_MODULE_STATUS_1         0x502
-#define ID_MODULE_STATUS_2         0x503
-#define ID_MODULE_STATUS_3         0x504
-#define ID_MODULE_DETAIL           0x505
-#define ID_MODULE_TIME_REQUEST     0x506
-
-// Pack Controller to Module Controller
-#define ID_MODULE_REGISTRATION     0x510
-#define ID_MODULE_HARDWARE_REQUEST 0x511
-#define ID_MODULE_STATUS_REQUEST   0x512
-#define ID_MODULE_STATE_CHANGE     0x514
-#define ID_MODULE_DETAIL_REQUEST   0x515
-#define ID_MODULE_TIME             0x516
-#define ID_MODULE_ALL_DEREGISTER   0x51E
-#define ID_MODULE_ALL_ISOLATE      0x51F
+// All CAN ID definitions now come from the shared protocol file
+#include "../../../../../Pack-Controller-EEPROM/protocols/CAN_ID_ALL.h"
 
 #endif /* INC_CAN_ID_MODULE_H_ */
