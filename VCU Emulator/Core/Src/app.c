@@ -13,8 +13,8 @@
 #include "bms.h"
 #include "string.h"
 #include "stdio.h"
-#include "can_frm_vcu.h"
-#include "can_frm_bms_diag.h"
+#include "../../../Pack-Controller-EEPROM/protocols/can_frm_vcu.h"
+#include "../../../Pack-Controller-EEPROM/protocols/can_frm_bms_diag.h"
 #include "can_id_bms_vcu.h"
 #include "can_id_bms_diag.h"
 

@@ -7,7 +7,7 @@
  *
  **************************************************************************************************************/
 // Include files
-#include "can_frm_vcu.h"
+#include "../../../Pack-Controller-EEPROM/protocols/can_frm_vcu.h"
 #include "can_id_bms_vcu.h"
 
 

@@ -14,7 +14,7 @@
 #include "string.h"
 #include "stdio.h"
 #include "can_id_module.h"
-#include "can_frm_mod.h"
+#include "../../../Pack-Controller-EEPROM/protocols/can_frm_mod.h"
 
 /***************************************************************************************************************
 *
