@@ -1,0 +1,64 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "modbatt-CAN: Battery Management Configuration and Monitoring Utility"
+abstract: "Windows application for ModBatt battery management system configuration, monitoring, and diagnostics. Integrates PCAN-Basic API for CAN bus communication, provides real-time visualization, and includes API-Bridge specification for future blockchain integration. Demonstrates human interface layer for distributed battery systems."
+authors:
+  - family-names: "Palatov"
+    given-names: "Dennis"
+    orcid: "https://orcid.org/0009-0006-5510-6445"
+    affiliation: "Modular Battery Technologies, Inc."
+repository-code: "https://github.com/dp-web4/modbatt-CAN"
+url: "https://github.com/dp-web4/modbatt-CAN"
+keywords:
+  - battery-management-system
+  - bms
+  - windows
+  - cpp-builder
+  - can-bus
+  - pcan
+  - diagnostics
+  - monitoring
+  - configuration
+  - modbatt
+  - battery
+  - lithium-ion
+  - visualization
+  - real-time
+  - api-bridge
+  - blockchain-integration
+  - web4
+  - synchronism
+  - iot
+  - electric-vehicle
+  - energy-storage
+  - human-interface
+  - can-protocol
+  - peak-system
+license: AGPL-3.0-or-later
+license-url: "https://github.com/dp-web4/modbatt-CAN/blob/main/LICENSE"
+version: "1.0.0-oss"
+date-released: "2025-10-19"
+references:
+  - type: software
+    title: "Web4: Trust-Native Internet Architecture"
+    repository-code: "https://github.com/dp-web4/web4"
+  - type: software
+    title: "Synchronism Framework"
+    repository-code: "https://github.com/dp-web4/Synchronism"
+  - type: software
+    title: "CellCPU: Cell-Level Battery Management"
+    repository-code: "https://github.com/dp-web4/CellCPU"
+  - type: software
+    title: "ModuleCPU: Module-Level Battery Management"
+    repository-code: "https://github.com/dp-web4/ModuleCPU"
+  - type: software
+    title: "Pack-Controller-EEPROM: Pack-Level Orchestration"
+    repository-code: "https://github.com/dp-web4/Pack-Controller-EEPROM"
+identifiers:
+  - type: url
+    value: "https://github.com/dp-web4/modbatt-CAN"
+    description: "GitHub Repository"
+  - type: other
+    value: "PCAN-Basic-API"
+    description: "PEAK-System PCAN-Basic API (freely redistributable, genuine hardware required)"
